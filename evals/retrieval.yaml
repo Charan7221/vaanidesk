@@ -1,0 +1,34 @@
+# Retrieval eval: does search put the right passage in front of the agent?
+# Run:  python -m evals.retrieval      (vector modes need an embedding model; keyword mode runs offline)
+#
+# expect: citation(s) that answer the question (any one counts).
+# "paraphrase" questions avoid the documents' wording on purpose; Hindi/Telugu questions are asked
+# as the caller would say them (the live agent translates to English first, but retrieval should cope).
+
+- {q: "Do I need to fast before a blood sugar test?", lang: en, expect: ["lab-tests.md › Preparing for a test"]}
+- {q: "Do you accept cashless insurance?", lang: en, expect: ["insurance.md › Cashless treatment"]}
+- {q: "How much is a consultation for my child?", lang: en, expect: ["fees-and-payments.md › Consultation fees"]}
+- {q: "When will my thyroid report be ready?", lang: en, expect: ["lab-tests.md › Reports"]}
+- {q: "Which days do you give vaccinations?", lang: en, expect: ["vaccinations.md › Vaccination days"]}
+- {q: "Is there a charge for cancelling an appointment?", lang: en, expect: ["clinic-policies.md › Cancelling or changing an appointment"]}
+- {q: "Can I pay with PhonePe?", lang: en, expect: ["fees-and-payments.md › Payment methods"]}
+- {q: "Do you do MRI scans?", lang: en, expect: ["lab-tests.md › Test prices"]}
+- {q: "Is there a discount for senior citizens?", lang: en, expect: ["fees-and-payments.md › Consultation fees"]}
+
+- {q: "What degrees does the kids' doctor have?", lang: paraphrase, expect: ["doctors.md › Dr. Lakshmi Devi, Paediatrician"]}
+- {q: "Can my grandmother come in a wheelchair?", lang: paraphrase, expect: ["clinic-policies.md › Location and facilities"]}
+- {q: "Can I eat breakfast before my cholesterol check?", lang: paraphrase, expect: ["lab-tests.md › Preparing for a test"]}
+- {q: "I need papers for my company to refund the bill", lang: paraphrase, expect: ["insurance.md › Documents for claims", "fees-and-payments.md › Receipts and bills"]}
+- {q: "Can the doctor come to my house?", lang: paraphrase, expect: ["clinic-policies.md › Home visits and online consultations"]}
+- {q: "How many family members can come along?", lang: paraphrase, expect: ["clinic-policies.md › Visitors"]}
+- {q: "Is the clinic covered under Aarogyasri?", lang: paraphrase, expect: ["insurance.md › Government health schemes"]}
+
+- {q: "क्या शुगर टेस्ट से पहले खाली पेट आना है?", lang: hi, expect: ["lab-tests.md › Preparing for a test"]}
+- {q: "क्या आप कैशलेस इंश्योरेंस लेते हैं?", lang: hi, expect: ["insurance.md › Cashless treatment"]}
+- {q: "बच्चों के डॉक्टर की फीस कितनी है?", lang: hi, expect: ["fees-and-payments.md › Consultation fees"]}
+- {q: "टीके किस दिन लगते हैं?", lang: hi, expect: ["vaccinations.md › Vaccination days"]}
+
+- {q: "షుగర్ టెస్ట్ ముందు ఏమీ తినకూడదా?", lang: te, expect: ["lab-tests.md › Preparing for a test"]}
+- {q: "మీ దగ్గర క్యాష్‌లెస్ ఇన్సూరెన్స్ ఉందా?", lang: te, expect: ["insurance.md › Cashless treatment"]}
+- {q: "పిల్లల డాక్టర్ ఫీజు ఎంత?", lang: te, expect: ["fees-and-payments.md › Consultation fees"]}
+- {q: "టీకాలు ఏ రోజుల్లో వేస్తారు?", lang: te, expect: ["vaccinations.md › Vaccination days"]}

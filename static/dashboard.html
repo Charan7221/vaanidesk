@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Dashboard</title>
+  <link rel="stylesheet" href="/static/style.css?v=5" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Dashboard</span></div>
+  <nav>
+    <select id="range"><option value="1">Today</option><option value="7" selected>7 days</option><option value="30">30 days</option></select>
+    <a href="/calendar">Calendar</a>
+    <a href="/knowledge">Knowledge</a>
+    <a href="/demo">Live demo</a>
+  </nav>
+</header>
+<main>
+  <p class="small muted" id="period" style="margin:0 0 10px"></p>
+  <section class="kpis" id="kpis"></section>
+  <div class="two-col">
+    <section class="panel">
+      <h2>Calls in this period</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Time</th><th>Caller</th><th>Lang</th><th>Outcome</th><th>Latency</th><th>Summary</th></tr></thead>
+          <tbody id="calls"></tbody>
+        </table>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Upcoming appointments</h2>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>When</th><th>Patient</th><th>Doctor</th><th></th></tr></thead>
+          <tbody id="appts"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+</main>
+<dialog id="callDialog">
+  <div class="head"><strong id="dlgTitle">Call</strong><button id="dlgClose">Close</button></div>
+  <div class="body"><div id="dlgBody" class="transcript" style="height:auto"></div></div>
+</dialog>
+<script src="/static/dashboard.js?v=5"></script>
+</body>
+</html>

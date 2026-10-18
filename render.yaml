@@ -1,0 +1,42 @@
+# Render Blueprint: one-click deploy of VaaniDesk (web service + PostgreSQL).
+# Render dashboard -> New -> Blueprint -> pick this repo. You'll be asked for the secret values.
+services:
+  - type: web
+    name: vaanidesk
+    runtime: docker
+    plan: free            # free instances sleep when idle (first request takes ~1 min); use "starter" for always-on
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: vaanidesk-db
+          property: connectionString
+      # PUBLIC_BASE_URL is filled automatically from Render's RENDER_EXTERNAL_URL.
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: OPENAI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: DEMO_ACCESS_CODE
+        sync: false
+      - key: GOOGLE_CALENDAR_ID
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_PHONE_NUMBER
+        sync: false
+
+databases:
+  - name: vaanidesk-db
+    plan: free
+    databaseName: vaanidesk
+    user: vaani

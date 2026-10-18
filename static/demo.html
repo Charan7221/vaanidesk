@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Live Demo</title>
+  <link rel="stylesheet" href="/static/style.css?v=5" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge">AI Receptionist</span></div>
+  <nav><a href="/dashboard">Owner dashboard</a><a href="/docs">API</a></nav>
+</header>
+<main>
+  <p class="muted" id="intro">Talk to the AI receptionist in English, हिन्दी or తెలుగు. Try: “I want to book an appointment tomorrow evening.”</p>
+  <div class="demo-grid">
+    <section class="panel call-card">
+      <div id="orb" class="orb idle"></div>
+      <div id="status" class="status-line">Ready</div>
+      <div class="field">Preferred greeting language
+        <select id="lang">
+          <option value="en-IN">English</option>
+          <option value="hi-IN">हिन्दी (Hindi)</option>
+          <option value="te-IN">తెలుగు (Telugu)</option>
+        </select>
+      </div>
+      <div class="field">Your phone (optional, for SMS confirmation)
+        <input id="phone" type="tel" placeholder="+91XXXXXXXXXX" />
+      </div>
+      <div class="field" id="codeField" hidden>Demo access code
+        <input id="code" type="password" />
+      </div>
+      <button id="callBtn" class="primary">Start call</button>
+      <div class="small muted">Latency (speech end → AI voice): <span id="latency" class="badge">–</span></div>
+      <div class="small muted" id="phoneLine"></div>
+    </section>
+    <section class="panel">
+      <div id="transcript" class="transcript"></div>
+      <form id="composer" class="composer">
+        <input id="textInput" placeholder="…or type a message (works during a call)" autocomplete="off" disabled />
+        <button id="sendBtn" disabled>Send</button>
+      </form>
+    </section>
+  </div>
+</main>
+<script src="/static/demo.js?v=5"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+.env
+*.db
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+evals/results.json
+secrets/
+data/
+.DS_Store
+evals/sim_results.json
+evals/retrieval_results.json
+# never commit keys, even if saved outside secrets/
+.env.*
+!.env.example
+*service-account*.json
+*.pem
+*.key

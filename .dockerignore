@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+secrets/
+*.db
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.git/
+evals/*results.json

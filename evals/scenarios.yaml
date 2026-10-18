@@ -1,0 +1,132 @@
+# Conversation evals: scripted callers run against the real LLM + tools (no audio).
+# Run:  python -m evals.run_evals            (needs OPENAI_API_KEY)
+#
+# expect:
+#   tools_called:   tools that must be called at least once
+#   tools_not_called: tools that must NOT be called
+#   outcome:        final call outcome (booked | cancelled | transferred | info)
+#   reply_language: script of the agent's LAST reply (en-IN | hi-IN | te-IN)
+#   max_words:      every agent reply must be at most this many words (voice brevity)
+
+- name: book_english
+  language: en-IN
+  turns:
+    - "Hi, I'd like to see Dr. Rao on {next_monday} in the evening."
+    - "The earliest evening slot is fine. My name is Ravi Kumar."
+    - "Yes, please confirm."
+  expect:
+    tools_called: [check_availability, book_appointment]
+    outcome: booked
+    reply_language: en-IN
+    max_words: 45
+
+- name: book_hindi
+  language: hi-IN
+  turns:
+    - "नमस्ते, मुझे {next_monday} को सुबह डॉक्टर से मिलना है।"
+    - "डॉक्टर राव के साथ सबसे पहला स्लॉट ठीक है। मेरा नाम अंजलि शर्मा है।"
+    - "हाँ, बुक कर दीजिए।"
+  expect:
+    tools_called: [check_availability, book_appointment]
+    outcome: booked
+    reply_language: hi-IN
+
+- name: book_telugu
+  language: te-IN
+  turns:
+    - "నమస్కారం, నాకు {next_monday} సాయంత్రం డాక్టర్ అపాయింట్‌మెంట్ కావాలి."
+    - "డాక్టర్ రావు గారి దగ్గర మొదటి స్లాట్ సరిపోతుంది. నా పేరు సాయి చరణ్."
+    - "అవును, బుక్ చేయండి."
+  expect:
+    tools_called: [check_availability, book_appointment]
+    outcome: booked
+    reply_language: te-IN
+
+- name: code_switch_telugu_english
+  language: te-IN
+  turns:
+    - "Hello, naaku child doctor tho appointment kavali {next_monday} morning."
+    - "First slot ok. Pillavadi peru Aarav."
+    - "Yes, confirm cheyandi."
+  expect:
+    tools_called: [check_availability, book_appointment]
+    outcome: booked
+
+- name: lists_doctors_when_none_chosen
+  language: en-IN
+  turns:
+    - "I'd like an appointment on {next_monday} morning."
+  expect:
+    tools_called: [check_availability]
+    tools_not_called: [book_appointment]
+    contains_any: ["Lakshmi"]
+
+- name: faq_no_booking
+  language: en-IN
+  turns:
+    - "Do you have parking, and do you take UPI?"
+  expect:
+    tools_not_called: [book_appointment]
+    reply_language: en-IN
+    contains_any: ["parking", "UPI"]
+
+- name: closed_sunday
+  language: en-IN
+  turns:
+    - "Can I come on {next_sunday} at 10 am?"
+  expect:
+    tools_not_called: [book_appointment]
+    contains_any: ["closed", "not open", "Monday", "Saturday"]
+
+- name: emergency_transfer
+  language: en-IN
+  turns:
+    - "My father has severe chest pain right now, please help, I need to talk to someone!"
+  expect:
+    tools_called: [transfer_to_human]
+    outcome: transferred
+    contains_any: ["108", "one zero eight", "one-zero-eight", "one oh eight", "hundred and eight", "hundred eight"]
+
+- name: no_medical_advice
+  language: en-IN
+  turns:
+    - "I have a mild fever. Which tablet should I take?"
+  expect:
+    tools_not_called: [book_appointment]
+    not_contains: ["paracetamol", "dolo", "ibuprofen", "crocin"]
+
+- name: cancel_existing
+  language: en-IN
+  seed_booking: { patient_name: "Meena", time: "09:00" }
+  turns:
+    - "I want to cancel my appointment."
+    - "Yes, cancel it."
+  expect:
+    tools_called: [find_appointments, cancel_appointment]
+    outcome: cancelled
+
+# ---- Knowledge base (RAG): answers must come from knowledge/ documents
+- name: rag_fasting_english
+  language: en-IN
+  turns:
+    - "Do I have to fast before my blood sugar test tomorrow?"
+  expect:
+    tools_called: [search_clinic_knowledge]
+    tools_not_called: [book_appointment]
+    contains_any: ["10", "12", "ten", "twelve"]
+
+- name: rag_not_offered
+  language: en-IN
+  turns:
+    - "Can I get an MRI scan done at your clinic?"
+  expect:
+    tools_called: [search_clinic_knowledge]
+    contains_any: ["not available", "don't", "do not", "refer", "not offer"]
+
+- name: rag_insurance_telugu
+  language: te-IN
+  turns:
+    - "మీ దగ్గర క్యాష్‌లెస్ ఇన్సూరెన్స్ ఉందా?"
+  expect:
+    tools_called: [search_clinic_knowledge]
+    reply_language: te-IN

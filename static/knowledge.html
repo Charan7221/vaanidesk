@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Knowledge</title>
+  <link rel="stylesheet" href="/static/style.css?v=5" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Knowledge</span></div>
+  <nav><a href="/dashboard">Dashboard</a><a href="/calendar">Calendar</a><a href="/knowledge" aria-current="page">Knowledge</a><a href="/demo">Live demo</a></nav>
+</header>
+<main>
+  <section class="panel">
+    <h2>Clinic documents</h2>
+    <p class="small muted">The AI receptionist answers questions about fees, insurance, tests, doctors and policies
+      from these documents, and cites the source. Upload <b>.pdf</b>, <b>.md</b> or <b>.txt</b> (max 5 MB).
+      Files in the project's <code>knowledge/</code> folder are added automatically.</p>
+    <p class="small" id="backend"></p>
+    <form id="upload" class="feed-row">
+      <input type="file" id="file" accept=".pdf,.md,.markdown,.txt" required />
+      <button class="primary" type="submit">Upload</button>
+    </form>
+    <p class="small" id="uploadMsg"></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Document</th><th>Source</th><th>Chunks</th><th>Search</th><th></th></tr></thead>
+        <tbody id="docs"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Try a question</h2>
+    <p class="small muted">See exactly which passages the AI would read before answering.</p>
+    <form id="searchForm" class="feed-row">
+      <input id="q" placeholder="e.g. Do I need to fast before a sugar test?" required />
+      <button class="primary" type="submit">Search</button>
+    </form>
+    <div id="results"></div>
+  </section>
+</main>
+<script src="/static/knowledge.js?v=5"></script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+# Business profile used by the AI receptionist.
+# Edit this file to adapt VaaniDesk to any clinic, salon, restaurant or office.
+
+name: "Sunrise Family Clinic"
+assistant_name: "Vaani"
+timezone: "Asia/Kolkata"
+address: "12-4-56, MG Road, Vizianagaram, Andhra Pradesh"
+phone: "+91 90000 00000"
+
+# Languages the assistant may speak. First one is the default greeting language.
+languages: ["en-IN", "hi-IN", "te-IN"]
+# How the call opens:
+#   full  -> the same greeting in every language above (English, then Hindi, then Telugu)
+#   short -> greeting in one language + "you can also speak Hindi / Telugu" in those languages
+#   off   -> one language only
+multilingual_greeting: full
+
+# Appointment settings
+slot_minutes: 20
+booking_horizon_days: 14
+
+# Opening hours per weekday (24h clock). Omit a day or use [] to mark it closed.
+hours:
+  mon: [["09:00", "13:00"], ["17:00", "20:00"]]
+  tue: [["09:00", "13:00"], ["17:00", "20:00"]]
+  wed: [["09:00", "13:00"], ["17:00", "20:00"]]
+  thu: [["09:00", "13:00"], ["17:00", "20:00"]]
+  fri: [["09:00", "13:00"], ["17:00", "20:00"]]
+  sat: [["09:00", "13:00"]]
+  sun: []
+
+providers:
+  - id: "dr-rao"
+    name: "Dr. Srinivasa Rao"
+    specialty: "General Physician"
+  - id: "dr-lakshmi"
+    name: "Dr. Lakshmi Devi"
+    specialty: "Paediatrician"
+
+services:
+  - name: "General consultation"
+    price: "₹400"
+  - name: "Child consultation"
+    price: "₹450"
+  - name: "Follow-up visit (within 7 days)"
+    price: "Free"
+
+faq:
+  - q: "Do you accept walk-ins?"
+    a: "Yes, but patients with appointments are seen first, so booking is recommended."
+  - q: "Is parking available?"
+    a: "Yes, free two-wheeler and car parking is available in front of the clinic."
+  - q: "Which payment methods do you accept?"
+    a: "Cash, UPI and all major cards."
+  - q: "Do you have a lab?"
+    a: "Basic blood tests are done at the clinic; samples are collected from 8 AM."
+
+# Where to transfer the call when the caller asks for a human or it's an emergency.
+handoff_number: "+919000000000"
+# Ambulance number callers are told to dial first in a medical emergency.
+emergency_number: "108"
+
+# Extra instructions for the assistant's behaviour.
+policies:
+  - "Never give medical advice or diagnoses. For emergencies, tell the caller to call 108 immediately."
+  - "Confirm the caller's name, date and time before booking."
+  - "Keep each reply short: one or two sentences, because this is a phone call."

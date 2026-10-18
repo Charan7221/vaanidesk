@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Calendar</title>
+  <link rel="stylesheet" href="/static/style.css?v=5" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Calendar</span></div>
+  <nav><a href="/dashboard">Dashboard</a><a href="/calendar" aria-current="page">Calendar</a><a href="/knowledge">Knowledge</a><a href="/demo">Live demo</a></nav>
+</header>
+<main>
+  <section class="cal-toolbar">
+    <div class="cal-nav">
+      <button id="prev" aria-label="Previous week">‹</button>
+      <button id="today">Today</button>
+      <button id="next" aria-label="Next week">›</button>
+      <strong id="range"></strong>
+    </div>
+    <label class="field inline">Doctor
+      <select id="provider"></select>
+    </label>
+  </section>
+
+  <div class="legend small muted">
+    <span><i class="sw sw-appt"></i>Appointment</span>
+    <span><i class="sw sw-block"></i>Blocked</span>
+    <span><i class="sw sw-free"></i>Free (click to block or book)</span>
+    <span><i class="sw sw-closed"></i>Closed</span>
+  </div>
+
+  <div class="panel cal-wrap"><div id="grid" class="cal-grid"></div></div>
+
+  <section class="panel feed">
+    <h2>See appointments on your phone</h2>
+    <p class="small muted">Subscribe to this private link once in Google Calendar, Apple Calendar or Outlook. New bookings appear automatically (Google refreshes subscribed calendars every few hours). Keep the link private.</p>
+    <div class="feed-row">
+      <input id="feedUrl" readonly />
+      <button id="copyFeed" class="primary">Copy link</button>
+    </div>
+    <p id="feedWarn" class="small warn-text" hidden>This server is only reachable on this computer (localhost), so phones can't load the link yet. It starts working once VaaniDesk is online (see docs/GO_LIVE.md, Step 2).</p>
+    <details class="small">
+      <summary>How to add it</summary>
+      <ul>
+        <li><b>Google Calendar (computer):</b> calendar.google.com → Other calendars <b>+</b> → From URL → paste → Add calendar. It then appears on your phone's Google Calendar app.</li>
+        <li><b>iPhone:</b> Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar → paste.</li>
+        <li><b>Outlook:</b> Add calendar → Subscribe from web → paste.</li>
+      </ul>
+    </details>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div class="head"><strong id="dlgTitle"></strong><button value="cancel" formnovalidate>Close</button></div>
+    <div class="body" id="dlgBody"></div>
+  </form>
+</dialog>
+<script src="/static/calendar.js?v=5"></script>
+</body>
+</html>
