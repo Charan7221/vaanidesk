@@ -18,6 +18,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
     inspect,
     select,
@@ -209,6 +210,15 @@ def _add_missing_columns(sync_conn) -> None:
 class Database:
     def __init__(self, url: str):
         self.engine: AsyncEngine = create_async_engine(url, future=True)
+        if self.engine.dialect.name == "sqlite":
+            # WAL lets the dashboard read while a call is writing (no "database is locked"), and a busy
+            # timeout makes concurrent writers wait instead of failing.
+            @event.listens_for(self.engine.sync_engine, "connect")
+            def _sqlite_pragmas(dbapi_conn, _record) -> None:
+                cur = dbapi_conn.cursor()
+                cur.execute("PRAGMA journal_mode=WAL")
+                cur.execute("PRAGMA busy_timeout=15000")
+                cur.close()
         self.sessionmaker = async_sessionmaker(self.engine, expire_on_commit=False)
 
     #: True when the database is Postgres with the pgvector extension (vector search runs in SQL)
