@@ -29,10 +29,15 @@
     if (t.status === "waiting" || t.status === "skipped") actions.push(["cancelled", "Cancel"]);
     const who = [t.age ? `${t.age} y` : "", t.reason || ""].filter(Boolean).join(" · ");
     const meta = [t.phone || "", `${t.source === "call" ? "AI call" : "Desk"} ${t.created_at}`].filter(Boolean).join(" · ");
+    const free = t.fee_type === "follow_up" && !t.fee_amount;
+    const fee = t.fee_type == null ? "" : free ? `<span class="badge ok">Free follow-up</span>`
+      : t.paid ? `<span class="badge ok">${esc(data.currency)}${t.fee_amount} paid</span>`
+      : `<span class="badge warn">${esc(data.currency)}${t.fee_amount}${t.fee_type === "follow_up" ? " follow-up" : ""} due</span>`;
+    if (t.fee_type != null && !free && t.status !== "cancelled") actions.push([t.paid ? "unpaid" : "paid", t.paid ? "Undo paid" : "Mark paid"]);
     return `<tr class="${t.status === "in_consultation" ? "is-serving" : ""}${["done", "cancelled"].includes(t.status) ? " is-past" : ""}">
       <td class="tok">${t.number}</td>
       <td><b>${esc(t.patient_name)}</b>${who ? ` <span class="small muted">${esc(who)}</span>` : ""}<div class="small muted">${esc(meta)}</div></td>
-      <td class="state"><span class="badge ${cls}">${label}</span>
+      <td class="state"><span class="badge ${cls}">${label}</span> ${fee}
         <div class="actions">${actions.map(([s, l]) => `<button class="mini" data-token="${esc(t.id)}" data-status="${s}">${l}</button>`).join("")}</div></td>
     </tr>`;
   }
@@ -46,7 +51,7 @@
     const key = `data-doc="${esc(doc.id)}" data-session="${esc(s.session)}"`;
     return `<section class="panel opd-session${s.cancelled ? " is-cancelled" : ""}">
       <div class="opd-head">
-        <div><h2>${esc(doc.name)} <span class="muted small">${esc(doc.specialty)}</span></h2>
+        <div><h2>${esc(doc.name)} <span class="muted small">${esc(doc.department || doc.specialty)}</span></h2>
           <div class="small muted">${esc(s.label[0].toUpperCase() + s.label.slice(1))} OPD · ${nice(s.from)} – ${nice(s.to)} ${flags.join(" ")}</div></div>
         <div class="serving"><div class="small muted">Now serving</div><div class="num">${s.now_serving ?? "–"}</div></div>
       </div>
@@ -104,7 +109,8 @@
       if (f.get("patient_name").trim().length < 2) throw new Error("Enter the patient's name");
       const r = await post("/api/opd/tokens", { provider_id: doc.id, session, day: isoDate(day), patient_name: f.get("patient_name").trim(),
         phone: f.get("phone") || null, age: f.get("age") ? Number(f.get("age")) : null, reason: f.get("reason") || null });
-      return r.created ? `Token ${r.number} given.` : `This patient already has token ${r.number}.`;
+      const fee = r.fee_type === "follow_up" && !r.fee_amount ? "free follow-up" : `fee ${data.currency}${r.fee_amount}${r.fee_type === "follow_up" ? " (follow-up)" : ""}`;
+      return r.created ? `Token ${r.number} given, ${fee}.` : `This patient already has token ${r.number}.`;
     });
   }
 
@@ -135,7 +141,8 @@
     try {
       if (btn.dataset.token) {
         if (btn.dataset.status === "cancelled" && !confirm("Cancel this token?")) return;
-        await post(`/api/opd/tokens/${btn.dataset.token}/status`, { status: btn.dataset.status });
+        if (["paid", "unpaid"].includes(btn.dataset.status)) await post(`/api/opd/tokens/${btn.dataset.token}/paid`, { paid: btn.dataset.status === "paid" });
+        else await post(`/api/opd/tokens/${btn.dataset.token}/status`, { status: btn.dataset.status });
         return load();
       }
       const doc = data.doctors.find(d => d.id === btn.dataset.doc);

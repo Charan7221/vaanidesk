@@ -80,6 +80,8 @@ async def week(request: Request, start: date | None = None, days: int = 7, provi
             "id": a.id, "patient_name": a.patient_name, "phone": a.phone, "reason": a.reason,
             "provider_id": a.provider_id, "provider": pname(a.provider_id),
             "start": _local(a.start, tz), "end": _local(a.end, tz), "booked_by": "AI call" if a.call_id else "Staff",
+            "fee": (None if a.fee_type is None else "Free follow-up" if a.fee_type == "follow_up" and not a.fee_amount
+                    else f"{biz.fees.currency}{a.fee_amount}" + (" follow-up" if a.fee_type == "follow_up" else "")),
         } for a in appts],
         "blocks": [{
             "id": b.id, "provider_id": b.provider_id, "provider": pname(b.provider_id), "reason": b.reason,
@@ -145,7 +147,8 @@ async def staff_booking(body: BookingIn, request: Request) -> dict:
                                          phone=phone, reason=body.reason)
     except SlotUnavailable as exc:
         raise HTTPException(409, "That slot is not available") from exc
-    return {"id": appt.id}
+    fee = await state.tools._record_fee(appt, body.patient_name.strip(), phone, appt.provider_id, body.date)
+    return {"id": appt.id, "fee": fee["label"]}
 
 
 # ------------------------------------------------------------------ subscribable .ics feed

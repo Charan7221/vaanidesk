@@ -55,7 +55,15 @@ def system_prompt(biz: Business, now: datetime | None = None, caller_phone: str 
         f"- {(now + timedelta(days=i)).strftime('%A %d %B %Y')} = {(now + timedelta(days=i)).date().isoformat()}"
         for i in range(0, 8)
     )
-    providers = "\n".join(f"- id={p.id}: {p.name} ({p.specialty})" for p in biz.providers) or "- (none)"
+    cur = biz.fees.currency
+    providers = "\n".join(
+        f"- id={p.id}: {p.name} ({p.specialty}"
+        + (f", {biz.department_of(p.id).name}" if biz.department_of(p.id) else "")
+        + f", fee {cur}{biz.fee_rules(p.id)[0]})" for p in biz.providers) or "- (none)"
+    fee_days, fee_fu = biz.fee_rules(biz.providers[0].id if biz.providers else None)[1:]
+    fee_rule = (f"A repeat visit to the same department within {fee_days} days is a follow-up: "
+                + ("free." if fee_fu == 0 else f"{cur}{fee_fu}.") + " Tools work out which applies; mention the fee "
+                "the tool returns once when confirming.")
     services = "\n".join(f"- {s.name}: {s.price}" for s in biz.services) or "- (none)"
     faq = "\n".join(f"- Q: {f.q}\n  A: {f.a}" for f in biz.faq) or "- (none)"
     policies = "\n".join(f"- {p}" for p in biz.policies)
@@ -76,6 +84,13 @@ Tokens are given for today and the next {opd.advance_days} days.
 - Use check_opd_status for "which number is going on", "how long will I wait", "is the doctor available
   today" or "is the doctor late". To cancel a token, use cancel_opd_token after the caller confirms.
 """ if opd.enabled else ""
+
+    routing_rules = """
+# Which doctor? (new patients)
+If the caller describes a problem but hasn't named a doctor, call find_doctor with the problem in simple
+English (and age if known) before checking availability or giving a token. Tell them the department and
+doctor in one sentence, never a diagnosis. If the patient may be a child, ask the age first.
+""" if biz.departments else ""
 
     return f"""You are {biz.assistant_name}, the friendly phone receptionist for {biz.name}.
 You are speaking on a live voice call. Your words are converted to speech.
@@ -109,7 +124,7 @@ Only the caller's own bookings can be looked up or changed; never reveal other p
 For questions about fees, insurance, lab tests and test preparation, doctors' qualifications,
 vaccinations, clinic policies or facilities, call search_clinic_knowledge first and answer only from
 its results (keep it short; don't read out the source). Don't use it for availability or bookings.
-{opd_rules}Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
+{opd_rules}{routing_rules}Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
 Medical emergency (chest pain, can't breathe, unconscious, severe bleeding, accident): don't ask
 questions or offer appointments. Call transfer_to_human with emergency=true, and tell the caller to
 call {biz.emergency_number} for an ambulance immediately, saying the number clearly.
@@ -128,6 +143,7 @@ Address: {biz.address}
 Opening hours: {biz.hours_summary()}
 Doctors / staff:
 {providers}
+Fees: {fee_rule}
 Services and prices:
 {services}
 FAQ:

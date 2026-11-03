@@ -47,12 +47,15 @@ async def board(request: Request, day: date | None = None) -> dict:
             summary["tokens"] = [{
                 "id": t.id, "number": t.number, "patient_name": t.patient_name, "phone": t.phone, "age": t.age,
                 "reason": t.reason, "status": t.status, "source": t.source,
+                "fee_type": t.fee_type, "fee_amount": t.fee_amount, "paid": bool(t.paid),
                 "created_at": as_utc(t.created_at).astimezone(biz.tz).strftime("%H:%M"),
             } for t in tokens if t.provider_id == p.id and t.session == s.key]
             sessions.append(summary)
-        doctors.append({"id": p.id, "name": p.name, "specialty": p.specialty, "sessions": sessions})
+        dept = biz.department_of(p.id)
+        doctors.append({"id": p.id, "name": p.name, "specialty": p.specialty, "sessions": sessions,
+                        "department": dept.name if dept else None})
     return {"date": day.isoformat(), "weekday": day.strftime("%A"), "enabled": biz.opd.enabled,
-            "avg_consult_minutes": biz.opd.avg_consult_minutes, "doctors": doctors}
+            "avg_consult_minutes": biz.opd.avg_consult_minutes, "currency": biz.fees.currency, "doctors": doctors}
 
 
 class TokenIn(BaseModel):
@@ -80,7 +83,8 @@ async def walk_in(body: TokenIn, request: Request) -> dict:
             phone=phone, session_hint=body.session, age=body.age, reason=body.reason, source="staff")
     except OpdError as exc:
         raise HTTPException(409, exc.reason) from exc
-    return {"id": token.id, "number": token.number, "created": created}
+    return {"id": token.id, "number": token.number, "created": created, "fee_type": token.fee_type,
+            "fee_amount": token.fee_amount}
 
 
 class QueueIn(BaseModel):
@@ -110,6 +114,18 @@ async def token_status(token_id: str, body: StatusIn, request: Request) -> dict:
     if not token:
         raise HTTPException(404, "token not found")
     return {"id": token.id, "number": token.number, "status": token.status}
+
+
+class PaidIn(BaseModel):
+    paid: bool = True
+
+
+@router.post("/tokens/{token_id}/paid")
+async def mark_paid(token_id: str, body: PaidIn, request: Request) -> dict:
+    token = await _state(request).tools.opd.set_paid(token_id, body.paid)
+    if not token:
+        raise HTTPException(404, "token not found")
+    return {"id": token.id, "paid": bool(token.paid)}
 
 
 class SessionStatusIn(BaseModel):

@@ -175,3 +175,23 @@
     tools_called: [search_clinic_knowledge]
     tools_not_called: [get_opd_token]
     contains_any: ["aadhaar", "photo id", "voter", "driving"]
+
+# ---- New patients: problem -> department and doctor (find_doctor)
+- name: route_child_english
+  language: en-IN
+  turns:
+    - "Hi, my five year old daughter has had a cough for three days. Which doctor should we see?"
+  expect:
+    tools_called: [find_doctor]
+    tools_not_called: [book_appointment, get_opd_token]
+    contains_any: ["Lakshmi", "paediatric", "pediatric", "child"]
+    not_contains: ["syrup", "antibiotic", "paracetamol"]
+
+- name: route_adult_telugu
+  language: te-IN
+  turns:
+    - "నమస్కారం, నాకు షుగర్ ఎక్కువగా ఉంది, ఏ డాక్టర్ దగ్గరికి వెళ్ళాలి? నా వయసు 52."
+  expect:
+    tools_called: [find_doctor]
+    reply_language: te-IN
+    contains_any: ["రావు", "Rao"]

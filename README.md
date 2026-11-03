@@ -43,10 +43,12 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 📚 **RAG over clinic documents:** answers fees, insurance, test-preparation and policy questions from the clinic's own PDFs and notes, using hybrid search (BM25 + embeddings, pgvector on Postgres), with the source shown on the dashboard
 - 🔒 **Guardrails in the tools, not just the prompt:** callers can only see or change their own bookings (matched by phone), invalid numbers and placeholder names are rejected, and a change of mind moves the booking instead of double-booking
 - 🎫 **OPD token queue:** callers take a walk-in **OPD token** by phone ("token 7 for Dr. Rao's evening OPD, please come by 5:45"), ask "which number is going on?" or "how long will I wait?", and cancel tokens. Reception runs the live queue on the **OPD page**: walk-in tokens, **Next patient**, missed turns, "doctor running late" (shifts every estimate) and cancelled sessions. Patients get a reusable patient number on their first token.
+- 🩺 **Right doctor for new patients:** callers describe the problem ("knee pain", "my son has a cough") and VaaniDesk picks the **department and doctor**, applying age rules (children → paediatrics) and gender rules (pregnancy → gynaecology), and flags danger signs for 108. It never diagnoses. Works for a 2-doctor clinic ([`config/business.yaml`](config/business.yaml)) or a multispeciality hospital ([`config/hospital.yaml`](config/hospital.yaml), 8 departments).
+- 💰 **Consultation fees and free follow-ups:** fees per department or doctor; a repeat visit to the same department within N days is a follow-up (free or reduced). It's tracked per patient across tokens and appointments, told to the caller, and shown on the OPD page with **Mark paid**.
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 💬 **SMS / WhatsApp confirmations** through Twilio
 - 📊 **Owner dashboard:** calls, transcripts, AI call summaries, booking rate, per-turn latency, language mix
-- 🧪 **Tested:** 109 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 129 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
 - 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
 
@@ -139,7 +141,7 @@ Everything about the business lives in [`config/business.yaml`](config/business.
 ## Tests and evals
 
 ```bash
-pytest -q                       # 109 tests, offline, about 15 s
+pytest -q                       # 129 tests, offline, about 30 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 ```
@@ -168,6 +170,26 @@ Many Indian clinics don't run on fixed appointment times: patients take a **toke
 Guardrails live in the tools: tokens only for today and the next `advance_days`, phone tokens stop `stop_before_end_minutes` before a session ends (the desk can still give walk-in tokens), sessions have a cap, a patient asking twice gets the same token, and callers only ever see their own token (other patients' names are never returned). Token numbers are protected by a database unique constraint, so two simultaneous calls can't get the same number. Settings live under `opd:` in [`config/business.yaml`](config/business.yaml).
 
 The reception screen at **/opd** shows every doctor's session with "Now serving", the waiting list and buttons for **Next patient**, **+ Walk-in token**, **Doctor late** and **Cancel OPD**. It refreshes every 10 seconds.
+
+### Departments, routing and fees
+
+Each department in the config has a `treats` list in plain English, optional `age_min` / `age_max` / `gender` rules, and fees:
+
+```yaml
+departments:
+  - id: orthopaedics
+    name: "Orthopaedics"
+    consultation_fee: 600
+    follow_up_days: 7          # a repeat visit within 7 days...
+    follow_up_fee: 0           # ...is free
+    treats: [fracture, joint pain, knee pain, back pain, sprain, arthritis]
+providers:
+  - {id: dr-ravi, name: "Dr. Ravi Teja", specialty: "Orthopaedic Surgeon", department: orthopaedics}
+```
+
+When a caller describes a problem without naming a doctor, the agent rewrites it in simple English and calls `find_doctor`. The most specific match wins ("child fever" beats "fever"), departments for children or women win ties, and patients who don't fit an age or gender rule fall back to paediatrics (children) or the default department. Danger words such as "chest pain" or "unconscious" are flagged so the agent sends the caller to 108 instead.
+
+Every token and appointment records the **fee type**: `new` (full fee) or `follow_up` when the same patient (name + phone) paid for a visit in the same department within the window. Family members sharing a phone are separate patients. Existing databases get the new columns automatically on startup.
 
 ### Knowledge base (RAG)
 
@@ -238,7 +260,8 @@ app/
   providers/              STT / LLM / TTS behind small interfaces (swappable)
   tools/                  calendar, agent tools, Twilio REST client
   transports/             Twilio media stream and browser WebSocket
-  tools/opd.py            OPD token queue: tokens, patient numbers, live position and waiting time
+  tools/opd.py            OPD token queue: tokens, patient numbers, live position, waiting time and fees
+  tools/routing.py        problem -> department and doctor (age/gender rules, emergency flags)
   api/dashboard.py        owner dashboard API
   api/opd.py              OPD reception screen API (walk-ins, next patient, delays)
 static/                   browser demo (AudioWorklet mic capture) and dashboard

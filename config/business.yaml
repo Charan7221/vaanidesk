@@ -29,13 +29,41 @@ hours:
   sat: [["09:00", "13:00"]]
   sun: []
 
+# Departments: the receptionist matches what a caller describes ("sugar is high", "my son has a cough")
+# against `treats` to suggest the right doctor. Write problems in simple English; callers can speak any
+# supported language (the agent translates). age_min / age_max / gender route children and women correctly.
+departments:
+  - id: "general-medicine"
+    name: "General Medicine"
+    default: true            # anything that doesn't match another department starts here
+    age_min: 15
+    consultation_fee: 400
+    treats: [fever, cold, cough, body pain, headache, diabetes, sugar, blood pressure, bp, thyroid,
+             stomach pain, acidity, vomiting, loose motions, diarrhoea, weakness, tiredness, infection,
+             allergy, skin rash, joint pain, back pain, health check-up, cholesterol, urine infection]
+  - id: "paediatrics"
+    name: "Paediatrics (children up to 14 years)"
+    age_max: 14
+    consultation_fee: 450
+    treats: [child, baby, newborn, infant, kid, son, daughter, vaccination, vaccine, growth, feeding,
+             child fever, child cough]
+
+# Consultation fees. A repeat visit to the same department within follow_up_days costs follow_up_fee.
+fees:
+  currency: "₹"
+  consultation_fee: 400
+  follow_up_days: 7
+  follow_up_fee: 0           # free follow-up
+
 providers:
   - id: "dr-rao"
     name: "Dr. Srinivasa Rao"
     specialty: "General Physician"
+    department: "general-medicine"
   - id: "dr-lakshmi"
     name: "Dr. Lakshmi Devi"
     specialty: "Paediatrician"
+    department: "paediatrics"
 
 services:
   - name: "General consultation"

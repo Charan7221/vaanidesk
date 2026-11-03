@@ -15,7 +15,7 @@ Keep that window open; errors appear there. Use **headphones** for voice tests, 
 
 ### 1.1 Automated tests
 - [x] In a **second** Command Prompt (activate `.venv` first): `pip install -r requirements-dev.txt` then `pytest -q`
-  - **Expected:** `109 passed`
+  - **Expected:** `129 passed`
 - [x] `python -m scripts.check_setup`
   - **Expected:** `[PASS]` for LLM, Sarvam TTS (stream), Sarvam TTS (rest) and STT. Google Calendar shows `[SKIP]`.
 - Notes:
@@ -64,6 +64,13 @@ Open http://localhost:8000/opd (dashboard login) in one tab and the demo in anot
 - [ ] OPD page: **Doctor late** → 30 minutes. Ask again in the demo. **Expected:** the estimate moves by about 30 minutes and the agent mentions the delay.
 - [ ] OPD page: **Cancel OPD** for Dr. Lakshmi with a note. Demo: *"Token for Dr. Lakshmi today."* **Expected:** the agent says her OPD is cancelled and offers another option.
 - [ ] RAG: *"What ID do I need for my first OPD visit?"* **Expected:** Aadhaar / photo ID from `opd.md`.
+- Notes:
+
+### 1.4c Right doctor and fees
+- [ ] Demo: *"My 5 year old son has a cough, which doctor?"* **Expected:** Dr. Lakshmi Devi (Paediatrics), no medicine names.
+- [ ] Demo: *"I have high sugar, I'm 50"* → take a token. **Expected:** Dr. Rao, fee ₹400; the OPD page shows "₹400 due" → **Mark paid** → "₹400 paid".
+- [ ] Next day (or a booking on another day within 7 days), same name and phone with Dr. Rao. **Expected:** "free follow-up".
+- [ ] Hospital mode: set `BUSINESS_CONFIG_PATH=config/hospital.yaml` in `.env`, restart, and ask about knee pain, irregular periods and blurred vision. **Expected:** Orthopaedics, Gynaecology and Ophthalmology. Set it back afterwards.
 - Notes:
 
 ### 1.5 Measure quality (for README and resume)

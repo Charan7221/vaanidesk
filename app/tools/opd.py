@@ -14,7 +14,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
 from ..business import Business, OPDSession
-from ..db import Database, OpdSessionStatus, OpdToken, Patient, utcnow
+from ..db import Appointment, Database, OpdSessionStatus, OpdToken, Patient, as_utc, utcnow
 
 log = logging.getLogger(__name__)
 
@@ -106,6 +106,40 @@ class OpdDesk:
                     await s.rollback()
         raise RuntimeError("could not allocate a patient number")
 
+    # ------------------------------------------------------------------ fees
+    def _same_department(self, provider_id: str) -> set[str]:
+        dept = self.biz.department_of(provider_id)
+        return {p.id for p in self.biz.providers_in(dept.id)} if dept else {provider_id}
+
+    async def fee_quote(self, patient_id: str | None, provider_id: str, day: date) -> dict:
+        """What this visit costs: the full consultation fee, or the follow-up fee when the patient paid for a
+        first visit in the same department within the follow-up window."""
+        fee, days, fu = self.biz.fee_rules(provider_id)
+        cur = self.biz.fees.currency
+        new = {"type": "new", "amount": fee, "label": f"{cur}{fee} consultation fee"}
+        if not patient_id:
+            return new
+        doctors = self._same_department(provider_id)
+        since = day - timedelta(days=days)
+        visits: list[date] = []
+        async with self.db.session() as s:
+            tokens = (await s.execute(select(OpdToken.day).where(
+                OpdToken.patient_id == patient_id, OpdToken.provider_id.in_(doctors), OpdToken.fee_type == "new",
+                OpdToken.status != "cancelled", OpdToken.day >= since.isoformat(),
+                OpdToken.day <= day.isoformat()))).scalars()
+            visits += [date.fromisoformat(d) for d in tokens]
+            appts = (await s.execute(select(Appointment.start).where(
+                Appointment.patient_id == patient_id, Appointment.provider_id.in_(doctors),
+                Appointment.fee_type == "new", Appointment.status != "cancelled"))).scalars()
+            visits += [d for d in (as_utc(a).astimezone(self.biz.tz).date() for a in appts) if since <= d <= day]
+        if not visits:
+            return new
+        first = max(visits)
+        until = first + timedelta(days=days)
+        return {"type": "follow_up", "amount": fu, "first_visit": first.isoformat(), "valid_until": until.isoformat(),
+                "label": ("free follow-up" if fu == 0 else f"{cur}{fu} follow-up fee")
+                         + f" (first visit {first.strftime('%d %b')}, valid till {until.strftime('%d %b')})"}
+
     # ------------------------------------------------------------------ tokens
     async def tokens(self, day: date, provider_id: str | None = None, key: str | None = None) -> list[OpdToken]:
         async with self.db.session() as s:
@@ -175,6 +209,7 @@ class OpdDesk:
                            "Offer the next session, another doctor or a fixed-time appointment.")
 
         patient = await self.register_patient(patient_name, phone, age)
+        quote = await self.fee_quote(patient.id, provider.id, day)
         for _ in range(5):
             async with self.db.session() as db:
                 top = (await db.execute(select(func.max(OpdToken.number)).where(
@@ -182,7 +217,8 @@ class OpdDesk:
                     OpdToken.session == s.key))).scalar_one_or_none()
                 token = OpdToken(day=day.isoformat(), session=s.key, provider_id=provider.id, number=(top or 0) + 1,
                                  patient_id=patient.id, patient_name=patient_name, phone=phone, age=age,
-                                 reason=reason, source=source, call_id=call_id)
+                                 reason=reason, source=source, call_id=call_id, fee_type=quote["type"],
+                                 fee_amount=quote["amount"], paid=False)
                 db.add(token)
                 try:
                     await db.commit()
@@ -214,6 +250,11 @@ class OpdDesk:
                 "date": token.day, "weekday": day.strftime("%A"),
                 "session": f"{s.label} {spoken_time(s.start)} to {spoken_time(s.end)}" if s else token.session,
                 "now_serving": serving.number if serving else None, "patients_ahead": len(ahead)}
+        if token.fee_type:
+            cur = self.biz.fees.currency
+            info["fee"] = ("free follow-up" if token.fee_type == "follow_up" and not token.fee_amount
+                           else f"{cur}{token.fee_amount}" + (" follow-up" if token.fee_type == "follow_up" else ""))
+            info["fee_paid"] = bool(token.paid)
         if status and status.delay_minutes:
             info["doctor_running_late_minutes"] = status.delay_minutes
         if status and status.cancelled:
@@ -288,6 +329,14 @@ class OpdDesk:
                 token.done_at = utcnow()
             token.status = status
             await s.commit()
+            return token
+
+    async def set_paid(self, token_id: str, paid: bool) -> OpdToken | None:
+        async with self.db.session() as s:
+            token = await s.get(OpdToken, token_id)
+            if token:
+                token.paid = bool(paid)
+                await s.commit()
             return token
 
     async def set_session_status(self, day: date, provider_id: str, key: str, *, delay_minutes: int | None = None,

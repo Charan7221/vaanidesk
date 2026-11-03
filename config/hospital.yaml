@@ -1,0 +1,107 @@
+# Example profile for a multispeciality hospital OPD (fictional). Use it with:
+#   BUSINESS_CONFIG_PATH=config/hospital.yaml   (in .env)
+# Replace the documents in knowledge/ with the hospital's own (the samples describe the small clinic).
+
+name: "Sunrise Multispeciality Hospital"
+assistant_name: "Vaani"
+timezone: "Asia/Kolkata"
+address: "Plot 7, Ring Road, Vizianagaram, Andhra Pradesh"
+phone: "+91 90000 00001"
+languages: ["en-IN", "hi-IN", "te-IN"]
+multilingual_greeting: short
+
+slot_minutes: 15
+booking_horizon_days: 14
+
+# OPD hours (each window is one OPD session per doctor)
+hours:
+  mon: [["09:00", "14:00"], ["17:00", "20:00"]]
+  tue: [["09:00", "14:00"], ["17:00", "20:00"]]
+  wed: [["09:00", "14:00"], ["17:00", "20:00"]]
+  thu: [["09:00", "14:00"], ["17:00", "20:00"]]
+  fri: [["09:00", "14:00"], ["17:00", "20:00"]]
+  sat: [["09:00", "14:00"]]
+  sun: []
+
+departments:
+  - id: general-medicine
+    name: "General Medicine"
+    default: true
+    age_min: 15
+    consultation_fee: 500
+    treats: [fever, cold, cough, body pain, headache, diabetes, sugar, blood pressure, bp, thyroid, weakness,
+             tiredness, infection, typhoid, dengue, malaria, health check-up, cholesterol, vomiting]
+  - id: paediatrics
+    name: "Paediatrics"
+    age_max: 14
+    consultation_fee: 500
+    treats: [child, baby, newborn, infant, kid, son, daughter, vaccination, vaccine, growth, feeding]
+  - id: obstetrics-gynaecology
+    name: "Obstetrics and Gynaecology"
+    gender: female
+    consultation_fee: 600
+    follow_up_days: 14
+    treats: [pregnancy, pregnant, periods, menstrual, irregular periods, white discharge, pcod, pcos,
+             fertility, delivery, antenatal, menopause, breast lump]
+  - id: orthopaedics
+    name: "Orthopaedics"
+    consultation_fee: 600
+    treats: [fracture, bone, joint pain, knee pain, back pain, neck pain, shoulder pain, sprain, ligament,
+             arthritis, slip disc, sports injury, knee replacement, hip pain]
+  - id: cardiology
+    name: "Cardiology"
+    age_min: 15
+    consultation_fee: 800
+    treats: [heart, palpitations, heart beat, ecg, echo, angiography, high cholesterol, chest discomfort,
+             breathless on walking, swelling in legs]
+  - id: ent
+    name: "ENT (ear, nose and throat)"
+    consultation_fee: 500
+    treats: [ear pain, ear discharge, hearing, sinus, nose block, nose bleed, throat pain, tonsils, voice,
+             snoring, giddiness, vertigo]
+  - id: dermatology
+    name: "Dermatology (skin, hair and nails)"
+    consultation_fee: 500
+    treats: [skin, rash, itching, pimples, acne, hair fall, dandruff, fungal infection, allergy on skin,
+             psoriasis, eczema, nails, white patches]
+  - id: ophthalmology
+    name: "Ophthalmology (eyes)"
+    consultation_fee: 400
+    treats: [eye, vision, blurred vision, spectacles, glasses, cataract, red eye, watering eyes, eye pain]
+
+fees:
+  currency: "₹"
+  consultation_fee: 500
+  follow_up_days: 7
+  follow_up_fee: 0
+
+providers:
+  - {id: dr-rao, name: "Dr. Srinivasa Rao", specialty: "General Physician", department: general-medicine}
+  - {id: dr-kiran, name: "Dr. Kiran Kumar", specialty: "General Physician", department: general-medicine}
+  - {id: dr-lakshmi, name: "Dr. Lakshmi Devi", specialty: "Paediatrician", department: paediatrics}
+  - {id: dr-padma, name: "Dr. Padmavathi", specialty: "Gynaecologist", department: obstetrics-gynaecology}
+  - {id: dr-ravi, name: "Dr. Ravi Teja", specialty: "Orthopaedic Surgeon", department: orthopaedics}
+  - {id: dr-anand, name: "Dr. Anand Varma", specialty: "Cardiologist", department: cardiology, consultation_fee: 1000}
+  - {id: dr-swathi, name: "Dr. Swathi", specialty: "ENT Surgeon", department: ent}
+  - {id: dr-farhan, name: "Dr. Farhan Ali", specialty: "Dermatologist", department: dermatology}
+  - {id: dr-meera, name: "Dr. Meera", specialty: "Ophthalmologist", department: ophthalmology}
+
+faq:
+  - q: "Is there a pharmacy?"
+    a: "Yes, the hospital pharmacy on the ground floor is open 24 hours."
+  - q: "Which payment methods do you accept?"
+    a: "Cash, UPI and all major cards."
+
+handoff_number: "+919000000001"
+emergency_number: "108"
+
+policies:
+  - "Never give medical advice or diagnoses. For emergencies, tell the caller to call 108 immediately or come to the 24-hour emergency department."
+  - "Keep each reply short: one or two sentences, because this is a phone call."
+
+opd:
+  enabled: true
+  avg_consult_minutes: 8
+  max_tokens_per_session: 60
+  stop_before_end_minutes: 30
+  advance_days: 2

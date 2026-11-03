@@ -19,6 +19,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    inspect,
     select,
     text,
 )
@@ -95,6 +96,9 @@ class Appointment(Base):
     end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     status: Mapped[str] = mapped_column(String(16), default="booked")  # booked|cancelled
+    patient_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    fee_type: Mapped[str | None] = mapped_column(String(16), nullable=True)  # new | follow_up
+    fee_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     external_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -163,6 +167,9 @@ class OpdToken(Base):
     call_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # waiting -> in_consultation -> done ; or skipped (missed their turn) / cancelled
     status: Mapped[str] = mapped_column(String(16), default="waiting")
+    fee_type: Mapped[str | None] = mapped_column(String(16), nullable=True)  # new | follow_up
+    fee_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    paid: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     called_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -184,6 +191,21 @@ class OpdSessionStatus(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+def _add_missing_columns(sync_conn) -> None:
+    """Tiny migration: add new nullable columns to tables created by an older version (create_all only
+    creates missing tables). Keeps existing SQLite/Postgres databases working after an upgrade."""
+    insp = inspect(sync_conn)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue
+        have = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name not in have and col.nullable:
+                ddl = col.type.compile(dialect=sync_conn.dialect)
+                sync_conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
+                log.info("Added column %s.%s", table.name, col.name)
+
+
 class Database:
     def __init__(self, url: str):
         self.engine: AsyncEngine = create_async_engine(url, future=True)
@@ -202,6 +224,7 @@ class Database:
                 log.warning("pgvector not available (%s); using in-app vector search", exc)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_add_missing_columns)
 
     async def dispose(self) -> None:
         await self.engine.dispose()

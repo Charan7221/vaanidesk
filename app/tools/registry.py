@@ -14,6 +14,7 @@ from ..knowledge import KnowledgeStore
 from ..phone import validate_phone
 from .calendar import LocalCalendar, SlotUnavailable
 from .opd import OpdDesk, OpdError
+from .routing import recommend
 from .twilio_client import TwilioClient
 
 log = logging.getLogger(__name__)
@@ -51,6 +52,25 @@ TOOL_SCHEMAS: list[dict] = [
                                          "description": "The caller's question rewritten as a short search "
                                                         "query IN ENGLISH, e.g. 'fasting before blood sugar test'"}},
                 "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "find_doctor",
+            "description": "Find the right department and doctor for the caller's problem when they haven't named a "
+                           "doctor (new patients usually don't know). Returns the department, its doctors and fees, "
+                           "and flags possible emergencies. Never use it to diagnose.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {"type": "string", "description": "the patient's problem in simple ENGLISH words, e.g. "
+                                                                "'knee pain', 'high sugar', 'child with fever'"},
+                    "age": {"type": "integer", "description": "patient's age in years, if known"},
+                    "gender": {"type": "string", "enum": ["female", "male"], "description": "only if relevant and known"},
+                },
+                "required": ["problem"],
             },
         },
     },
@@ -243,6 +263,7 @@ class ToolExecutor:
         self.opd = opd or OpdDesk(calendar.db, business)
         self._handlers: dict[str, Callable[[ToolContext, dict], Awaitable[dict]]] = {
             "search_clinic_knowledge": self.search_clinic_knowledge,
+            "find_doctor": self.find_doctor,
             "check_availability": self.check_availability,
             "book_appointment": self.book_appointment,
             "find_appointments": self.find_appointments,
@@ -379,6 +400,7 @@ class ToolExecutor:
 
         ctx.outcome = "booked"
         ctx.booked_ids.append(appt.id)
+        fee = await self._record_fee(appt, name, phone, provider_id, day)
         provider = self.biz.provider(provider_id)
         local = as_utc(appt.start).astimezone(self.biz.tz)
         when = local.strftime("%a %d %b, %I:%M %p")
@@ -391,7 +413,15 @@ class ToolExecutor:
             asyncio.create_task(self.twilio.send_message(phone, sms))
             sms_sent = self.twilio.enabled
         return {"booked": True, "appointment_id": appt.id, "when": when,
-                "provider": provider.name if provider else None, "confirmation_sms": sms_sent}
+                "provider": provider.name if provider else None, "fee": fee["label"], "confirmation_sms": sms_sent}
+
+    async def _record_fee(self, appt, name: str, phone: str | None, provider_id: str | None, day: date) -> dict:
+        """Register the patient and work out the fee (first visit or free follow-up) for an appointment."""
+        patient = await self.opd.register_patient(name, phone)
+        quote = await self.opd.fee_quote(patient.id, provider_id, day)
+        await self.cal.db.update_appointment(appt.id, patient_id=patient.id, fee_type=quote["type"],
+                                             fee_amount=quote["amount"])
+        return quote
 
     async def find_appointments(self, ctx: ToolContext, args: dict) -> dict:
         # Search every way we can and merge: the caller's own number (always), a number they spoke
@@ -469,6 +499,8 @@ class ToolExecutor:
             return {"rescheduled": False, "reason": "slot not available",
                     "alternatives": [_fmt_time(s) for s in nearest],
                     "note": "The original appointment is unchanged."}
+        await self.cal.db.update_appointment(new.id, patient_id=old.patient_id, fee_type=old.fee_type,
+                                             fee_amount=old.fee_amount)
         await self.cal.cancel(old.id)
         if old.id in ctx.booked_ids:
             ctx.booked_ids.remove(old.id)
@@ -482,6 +514,13 @@ class ToolExecutor:
                            f"{' with ' + provider.name if provider else ''}. Ref {new.id}."))
         return {"rescheduled": True, "appointment_id": new.id, "previous_appointment_cancelled": old.id,
                 "when": when, "provider": provider.name if provider else None}
+
+    async def find_doctor(self, ctx: ToolContext, args: dict) -> dict:
+        try:
+            age = int(args["age"]) if args.get("age") not in (None, "") else None
+        except (TypeError, ValueError):
+            age = None
+        return recommend(self.biz, args.get("problem") or "", age, args.get("gender"))
 
     # ------------------------------------------------------------------ OPD tokens
     def _opd_off(self) -> dict | None:

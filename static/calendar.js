@@ -152,6 +152,7 @@
         <dt>Phone</dt><dd>${esc(a.phone || "–")}</dd>
         <dt>Reason</dt><dd>${esc(a.reason || "–")}</dd>
         <dt>Booked by</dt><dd>${esc(a.booked_by)}</dd>
+        <dt>Fee</dt><dd>${esc(a.fee || "–")}</dd>
         <dt>Ref</dt><dd>${esc(a.id)}</dd>
       </dl>
       <button class="danger" data-action="cancel">Cancel appointment</button><p class="err small"></p>`,

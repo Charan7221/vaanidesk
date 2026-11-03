@@ -16,6 +16,33 @@ class Provider(BaseModel):
     id: str
     name: str
     specialty: str = ""
+    department: str | None = None  # department id
+    consultation_fee: int | None = None  # overrides the department's fee (e.g. a senior consultant)
+
+
+class Department(BaseModel):
+    """A clinical department. ``treats`` lists everyday problems (in English) that belong here, so the
+    receptionist can send a new patient to the right doctor from what they describe."""
+
+    id: str
+    name: str
+    treats: list[str] = Field(default_factory=list)
+    age_min: int | None = None  # e.g. 15 for adult medicine
+    age_max: int | None = None  # e.g. 14 for paediatrics
+    gender: str | None = None  # "female" for gynaecology / obstetrics
+    default: bool = False  # where patients go when the problem doesn't match any department
+    consultation_fee: int | None = None
+    follow_up_days: int | None = None
+    follow_up_fee: int | None = None
+
+
+class FeePolicy(BaseModel):
+    """Clinic-wide defaults; departments and doctors can override them."""
+
+    currency: str = "₹"
+    consultation_fee: int = 0
+    follow_up_days: int = 7  # a repeat visit to the same department within this many days ...
+    follow_up_fee: int = 0  # ... costs this much (0 = free follow-up)
 
 
 class Service(BaseModel):
@@ -66,6 +93,13 @@ class Business(BaseModel):
     handoff_number: str = ""
     policies: list[str] = Field(default_factory=list)
     opd: OPDConfig = Field(default_factory=OPDConfig)
+    departments: list[Department] = Field(default_factory=list)
+    fees: FeePolicy = Field(default_factory=FeePolicy)
+    # Words that may mean an emergency: the agent checks before routing to a normal OPD doctor.
+    red_flags: list[str] = Field(default_factory=lambda: [
+        "chest pain", "can't breathe", "cannot breathe", "breathing difficulty", "unconscious", "fainted",
+        "seizure", "fits", "heavy bleeding", "severe bleeding", "stroke", "face drooping", "slurred speech",
+        "accident", "poison", "snake bite", "suicide", "severe burn"])
 
     @property
     def tz(self) -> ZoneInfo:
@@ -90,6 +124,27 @@ class Business(BaseModel):
             if all(w in haystack for w in words):
                 return p
         return None
+
+    def department(self, department_id: str | None) -> Department | None:
+        return next((d for d in self.departments if d.id == department_id), None) if department_id else None
+
+    def department_of(self, provider_id: str | None) -> Department | None:
+        p = self.provider(provider_id) if provider_id else None
+        return self.department(p.department) if p else None
+
+    def providers_in(self, department_id: str) -> list[Provider]:
+        return [p for p in self.providers if p.department == department_id]
+
+    def fee_rules(self, provider_id: str | None) -> tuple[int, int, int]:
+        """(consultation fee, follow-up window in days, follow-up fee) for a doctor."""
+        p = self.provider(provider_id) if provider_id else None
+        d = self.department_of(provider_id)
+        f = self.fees
+        fee = next((v for v in (p.consultation_fee if p else None, d.consultation_fee if d else None)
+                    if v is not None), f.consultation_fee)
+        days = d.follow_up_days if d and d.follow_up_days is not None else f.follow_up_days
+        fu = d.follow_up_fee if d and d.follow_up_fee is not None else f.follow_up_fee
+        return fee, days, fu
 
     def opening_windows(self, day: date) -> list[tuple[datetime, datetime]]:
         """Return the open time windows for a calendar day, as tz-aware datetimes."""
