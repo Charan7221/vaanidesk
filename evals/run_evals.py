@@ -31,6 +31,7 @@ from app.pipeline.text import detect_script_language
 from app.providers import build_llm
 from app.providers.base import STTEvent, STTProvider, STTStream, TTSProvider, TTSStream
 from app.tools.calendar import LocalCalendar
+from app.tools.opd import OpdDesk
 from app.tools.registry import ToolContext, ToolExecutor
 from app.tools.twilio_client import TwilioClient
 from app.transports.base import Transport
@@ -130,8 +131,13 @@ def _dates(biz) -> dict[str, str]:
         return d
 
     mon, sun = nxt(0), nxt(6)
+    # first day (today or soon) whose OPD still gives phone tokens, so token evals work at any time of day
+    desk, now = OpdDesk(None, biz), biz.now()
+    opd_day = next((today + timedelta(days=i) for i in range(biz.opd.advance_days + 1)
+                    if desk.pick_session(today + timedelta(days=i), None, now)), mon)
     return {"next_monday": mon.strftime("%A %d %B"), "next_sunday": sun.strftime("%A %d %B"),
-            "_monday_date": mon}
+            "opd_day": "today" if opd_day == today else opd_day.strftime("%A %d %B"),
+            "_monday_date": mon, "_opd_date": opd_day}
 
 
 async def build_knowledge(settings, tmp_dir: str):
@@ -162,6 +168,13 @@ async def run_scenario(sc: dict, llm, settings, knowledge=None) -> dict:
             day = dates["_monday_date"]
             await cal.book(patient_name=seed["patient_name"], phone=CALLER, provider_id=biz.providers[0].id,
                            start=datetime(day.year, day.month, day.day, h, m, tzinfo=biz.tz))
+        if seed := sc.get("seed_opd_token"):  # a token for this caller, with other patients ahead of it
+            desk = OpdDesk(db, biz)
+            for i in range(seed.get("ahead", 0)):
+                await desk.issue(provider_id=biz.providers[0].id, day=dates["_opd_date"], patient_name=f"Patient {i + 1}",
+                                 phone=f"+91900000{i + 1:04d}", source="staff")
+            await desk.issue(provider_id=biz.providers[0].id, day=dates["_opd_date"], patient_name=seed["patient_name"],
+                             phone=CALLER)
         tools = ToolExecutor(biz, cal, TwilioClient(settings.model_copy(update={"twilio_account_sid": ""})), knowledge)
         call = await db.create_call(channel="eval", caller=CALLER)
         ctx = ToolContext(call_id=call.id, channel="eval", caller_phone=CALLER, language=sc.get("language", "en-IN"))

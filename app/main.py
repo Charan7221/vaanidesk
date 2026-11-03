@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from .api.calendar import router as calendar_router
 from .api.dashboard import router as dashboard_router
 from .api.knowledge import router as knowledge_router
+from .api.opd import router as opd_router
 from .config import ROOT_DIR, Settings, get_settings
 from .security import require_admin
 from .state import AppState
@@ -55,6 +56,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.include_router(dashboard_router)
     app.include_router(calendar_router)
     app.include_router(knowledge_router)
+    app.include_router(opd_router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -72,6 +74,10 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     @app.get("/calendar", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def calendar_page():
         return FileResponse(STATIC_DIR / "calendar.html", headers=NO_CACHE)
+
+    @app.get("/opd", include_in_schema=False, dependencies=[Depends(require_admin)])
+    async def opd_page():
+        return FileResponse(STATIC_DIR / "opd.html", headers=NO_CACHE)
 
     @app.get("/knowledge", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def knowledge_page():

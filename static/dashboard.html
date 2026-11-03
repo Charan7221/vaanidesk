@@ -4,13 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VaaniDesk Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css?v=5" />
+  <link rel="stylesheet" href="/static/style.css?v=6" />
 </head>
 <body>
 <header class="top">
   <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Dashboard</span></div>
   <nav>
     <select id="range"><option value="1">Today</option><option value="7" selected>7 days</option><option value="30">30 days</option></select>
+    <a href="/opd">OPD</a>
     <a href="/calendar">Calendar</a>
     <a href="/knowledge">Knowledge</a>
     <a href="/demo">Live demo</a>
@@ -44,6 +45,6 @@
   <div class="head"><strong id="dlgTitle">Call</strong><button id="dlgClose">Close</button></div>
   <div class="body"><div id="dlgBody" class="transcript" style="height:auto"></div></div>
 </dialog>
-<script src="/static/dashboard.js?v=5"></script>
+<script src="/static/dashboard.js?v=6"></script>
 </body>
 </html>

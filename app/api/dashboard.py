@@ -61,13 +61,15 @@ async def stats(request: Request, days: int = 7) -> dict:
         by_lang[lang] = by_lang.get(lang, 0) + 1
         by_outcome[c.outcome or "in progress"] = by_outcome.get(c.outcome or "in progress", 0) + 1
     booked = by_outcome.get("booked", 0)
+    tokens = by_outcome.get("token", 0)  # calls that ended with an OPD token
     return {
         "days": days,
         "since": since.isoformat(),
         "total_calls": len(calls),
         "failed_calls": failed,
         "booked": booked,
-        "conversion_rate": round(booked / len(calls), 3) if calls else 0,
+        "opd_tokens": tokens,
+        "conversion_rate": round((booked + tokens) / len(calls), 3) if calls else 0,
         "transferred": by_outcome.get("transferred", 0),
         "avg_latency_ms": round(sum(latencies) / len(latencies)) if latencies else None,
         "upcoming_appointments": upcoming,

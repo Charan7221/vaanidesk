@@ -8,7 +8,20 @@ import logging
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import JSON, DateTime, Float, ForeignKey, Integer, String, Text, func, select, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -115,6 +128,60 @@ class Block(Base):
     end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Patient(Base):
+    """A registered OPD patient. Family members can share a phone, so a patient is (phone, name)."""
+
+    __tablename__ = "patients"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    number: Mapped[int] = mapped_column(Integer, unique=True)  # patient number spoken to the caller, e.g. 1001
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class OpdToken(Base):
+    """A walk-in OPD token: number N in one doctor's queue for one session (day + session start)."""
+
+    __tablename__ = "opd_tokens"
+    __table_args__ = (UniqueConstraint("day", "provider_id", "session", "number", name="uq_opd_token_number"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    day: Mapped[str] = mapped_column(String(10), index=True)  # local date, YYYY-MM-DD
+    session: Mapped[str] = mapped_column(String(5))  # session start, HH:MM
+    provider_id: Mapped[str] = mapped_column(String(64))
+    number: Mapped[int] = mapped_column(Integer)
+    patient_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    patient_name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    age: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), default="call")  # call | staff
+    call_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # waiting -> in_consultation -> done ; or skipped (missed their turn) / cancelled
+    status: Mapped[str] = mapped_column(String(16), default="waiting")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    called_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OpdSessionStatus(Base):
+    """Staff notes on one doctor's OPD session: running late, or cancelled for the day."""
+
+    __tablename__ = "opd_session_status"
+    __table_args__ = (UniqueConstraint("day", "provider_id", "session", name="uq_opd_session"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    day: Mapped[str] = mapped_column(String(10), index=True)
+    session: Mapped[str] = mapped_column(String(5))
+    provider_id: Mapped[str] = mapped_column(String(64))
+    delay_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    cancelled: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
 class Database:

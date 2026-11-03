@@ -11,6 +11,8 @@
 - {q: "When will my thyroid report be ready?", lang: en, expect: ["lab-tests.md › Reports"]}
 - {q: "Which days do you give vaccinations?", lang: en, expect: ["vaccinations.md › Vaccination days"]}
 - {q: "Is there a charge for cancelling an appointment?", lang: en, expect: ["clinic-policies.md › Cancelling or changing an appointment"]}
+- {q: "What are the OPD timings?", lang: en, expect: ["opd.md › OPD timings", "doctors.md › Dr. Srinivasa Rao, General Physician"]}
+- {q: "How do OPD tokens work?", lang: en, expect: ["opd.md › How OPD tokens work"]}
 - {q: "Can I pay with PhonePe?", lang: en, expect: ["fees-and-payments.md › Payment methods"]}
 - {q: "Do you do MRI scans?", lang: en, expect: ["lab-tests.md › Test prices"]}
 - {q: "Is there a discount for senior citizens?", lang: en, expect: ["fees-and-payments.md › Consultation fees"]}
@@ -21,14 +23,17 @@
 - {q: "I need papers for my company to refund the bill", lang: paraphrase, expect: ["insurance.md › Documents for claims", "fees-and-payments.md › Receipts and bills"]}
 - {q: "Can the doctor come to my house?", lang: paraphrase, expect: ["clinic-policies.md › Home visits and online consultations"]}
 - {q: "How many family members can come along?", lang: paraphrase, expect: ["clinic-policies.md › Visitors"]}
+- {q: "What ID do I need the first time I visit?", lang: paraphrase, expect: ["opd.md › OPD registration"]}
 - {q: "Is the clinic covered under Aarogyasri?", lang: paraphrase, expect: ["insurance.md › Government health schemes"]}
 
 - {q: "क्या शुगर टेस्ट से पहले खाली पेट आना है?", lang: hi, expect: ["lab-tests.md › Preparing for a test"]}
 - {q: "क्या आप कैशलेस इंश्योरेंस लेते हैं?", lang: hi, expect: ["insurance.md › Cashless treatment"]}
 - {q: "बच्चों के डॉक्टर की फीस कितनी है?", lang: hi, expect: ["fees-and-payments.md › Consultation fees"]}
 - {q: "टीके किस दिन लगते हैं?", lang: hi, expect: ["vaccinations.md › Vaccination days"]}
+- {q: "ओपीडी कितने बजे से कितने बजे तक है?", lang: hi, expect: ["opd.md › OPD timings", "doctors.md › Dr. Srinivasa Rao, General Physician"]}
 
 - {q: "షుగర్ టెస్ట్ ముందు ఏమీ తినకూడదా?", lang: te, expect: ["lab-tests.md › Preparing for a test"]}
 - {q: "మీ దగ్గర క్యాష్‌లెస్ ఇన్సూరెన్స్ ఉందా?", lang: te, expect: ["insurance.md › Cashless treatment"]}
 - {q: "పిల్లల డాక్టర్ ఫీజు ఎంత?", lang: te, expect: ["fees-and-payments.md › Consultation fees"]}
 - {q: "టీకాలు ఏ రోజుల్లో వేస్తారు?", lang: te, expect: ["vaccinations.md › Vaccination days"]}
+- {q: "ఓపీడీ టోకెన్ ఎలా తీసుకోవాలి?", lang: te, expect: ["opd.md › How OPD tokens work"]}

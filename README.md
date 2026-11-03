@@ -42,10 +42,11 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 🛠️ **Agentic tool use:** check availability, book, find, reschedule or cancel appointments, transfer to a human, end the call
 - 📚 **RAG over clinic documents:** answers fees, insurance, test-preparation and policy questions from the clinic's own PDFs and notes, using hybrid search (BM25 + embeddings, pgvector on Postgres), with the source shown on the dashboard
 - 🔒 **Guardrails in the tools, not just the prompt:** callers can only see or change their own bookings (matched by phone), invalid numbers and placeholder names are rejected, and a change of mind moves the booking instead of double-booking
+- 🎫 **OPD token queue:** callers take a walk-in **OPD token** by phone ("token 7 for Dr. Rao's evening OPD, please come by 5:45"), ask "which number is going on?" or "how long will I wait?", and cancel tokens. Reception runs the live queue on the **OPD page**: walk-in tokens, **Next patient**, missed turns, "doctor running late" (shifts every estimate) and cancelled sessions. Patients get a reusable patient number on their first token.
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 💬 **SMS / WhatsApp confirmations** through Twilio
 - 📊 **Owner dashboard:** calls, transcripts, AI call summaries, booking rate, per-turn latency, language mix
-- 🧪 **Tested:** 42 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 109 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
 - 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
 
@@ -65,8 +66,9 @@ flowchart LR
       S <-->|stream audio| STT[STT<br/>Sarvam Saaras / Deepgram Nova-3]
       S <-->|stream tokens + tools| LLM[LLM<br/>OpenAI]
       S <-->|stream sentences| TTS[TTS<br/>Sarvam Bulbul]
-      LLM --> TOOLS[Tools<br/>availability · booking · reschedule · cancel · transfer]
+      LLM --> TOOLS[Tools<br/>availability · booking · reschedule · cancel · OPD tokens · transfer]
       TOOLS --> CAL[(Calendar<br/>SQLite/Postgres + Google)]
+      TOOLS --> OPD[(OPD token queue)]
       TOOLS --> SMS[Twilio SMS / WhatsApp]
       S --> DB[(Calls · transcripts · metrics)]
     end
@@ -137,7 +139,7 @@ Everything about the business lives in [`config/business.yaml`](config/business.
 ## Tests and evals
 
 ```bash
-pytest -q                       # 98 tests, offline, about 15 s
+pytest -q                       # 109 tests, offline, about 15 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 ```
@@ -151,6 +153,21 @@ The eval harness runs scripted callers ([`evals/scenarios.yaml`](evals/scenarios
 | 10 (en / hi / te, code-mixing, emergency, safety, cancel) | **10 / 10** | **1.0 s** | 1.3 s | 1.9 s |
 
 "Time to first spoken word" is what the caller waits for: when a tool is needed, VaaniDesk speaks a short filler ("One moment, please." / "जी, एक पल रुकिए।" / "ఒక్క క్షణం అండీ.") the moment the model asks for the tool, then answers when the tool returns. This cut the wait from about 1.9 s to 1.0 s. Lowering the model's thinking (`LLM_REASONING_EFFORT=minimal`) made no measurable difference with this model, so it is left at the default. Live calls add speech-to-text end-of-turn detection and the first chunk of text-to-speech on top of these numbers.
+
+### OPD tokens (walk-in queue)
+
+Many Indian clinics don't run on fixed appointment times: patients take a **token** for a doctor's OPD session and are seen in token order. VaaniDesk supports both side by side.
+
+| Caller says | What happens |
+|---|---|
+| "I want a token for Dr. Rao today" | `get_opd_token` issues the next number in that doctor's current or next session, registers the patient (patient number reused on later visits), estimates the turn time and sends an SMS |
+| "Which number is going on? How long will I wait?" | `check_opd_status` gives the caller's position, the token being seen now and an estimated time, including any delay staff entered |
+| "Is Dr. Lakshmi coming today?" | the same tool reports cancelled or late sessions with the staff's note |
+| "What ID do I need for registration?" | answered from [`knowledge/opd.md`](knowledge/opd.md) through RAG, because static facts belong in documents and live queue data belongs in tools |
+
+Guardrails live in the tools: tokens only for today and the next `advance_days`, phone tokens stop `stop_before_end_minutes` before a session ends (the desk can still give walk-in tokens), sessions have a cap, a patient asking twice gets the same token, and callers only ever see their own token (other patients' names are never returned). Token numbers are protected by a database unique constraint, so two simultaneous calls can't get the same number. Settings live under `opd:` in [`config/business.yaml`](config/business.yaml).
+
+The reception screen at **/opd** shows every doctor's session with "Now serving", the waiting list and buttons for **Next patient**, **+ Walk-in token**, **Doctor late** and **Cancel OPD**. It refreshes every 10 seconds.
 
 ### Knowledge base (RAG)
 
@@ -221,7 +238,9 @@ app/
   providers/              STT / LLM / TTS behind small interfaces (swappable)
   tools/                  calendar, agent tools, Twilio REST client
   transports/             Twilio media stream and browser WebSocket
+  tools/opd.py            OPD token queue: tokens, patient numbers, live position and waiting time
   api/dashboard.py        owner dashboard API
+  api/opd.py              OPD reception screen API (walk-ins, next patient, delays)
 static/                   browser demo (AudioWorklet mic capture) and dashboard
 evals/                    LLM conversation eval harness and scenarios
 tests/                    unit, engine, API and provider-protocol tests

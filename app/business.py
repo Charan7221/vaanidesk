@@ -28,6 +28,16 @@ class FAQ(BaseModel):
     a: str
 
 
+class OPDConfig(BaseModel):
+    """Walk-in OPD (outpatient) token queue. Each opening window of a day is one OPD session."""
+
+    enabled: bool = False
+    avg_consult_minutes: int = 10  # used to estimate waiting time
+    max_tokens_per_session: int = 40  # per doctor
+    stop_before_end_minutes: int = 30  # no new tokens this close to the end of a session
+    advance_days: int = 2  # tokens can be taken for today and up to this many days ahead
+
+
 class Business(BaseModel):
     name: str
     assistant_name: str = "Vaani"
@@ -55,6 +65,7 @@ class Business(BaseModel):
     faq: list[FAQ] = Field(default_factory=list)
     handoff_number: str = ""
     policies: list[str] = Field(default_factory=list)
+    opd: OPDConfig = Field(default_factory=OPDConfig)
 
     @property
     def tz(self) -> ZoneInfo:
@@ -100,6 +111,11 @@ class Business(BaseModel):
                 t += step
         return slots
 
+    def opd_sessions(self, day: date) -> list[OPDSession]:
+        """OPD sessions for a day: one per opening window (e.g. morning 09:00-13:00, evening 17:00-20:00)."""
+        return [OPDSession(key=start.strftime("%H:%M"), label=session_label(start), start=start, end=end)
+                for start, end in self.opening_windows(day)]
+
     def hours_summary(self) -> str:
         parts = []
         for d in WEEKDAYS:
@@ -107,6 +123,17 @@ class Business(BaseModel):
             label = d.capitalize()
             parts.append(f"{label}: " + (", ".join(f"{a}-{b}" for a, b in win) if win else "closed"))
         return "; ".join(parts)
+
+
+class OPDSession(BaseModel):
+    key: str  # start time "HH:MM", stored with each token
+    label: str  # morning | afternoon | evening
+    start: datetime
+    end: datetime
+
+
+def session_label(start: datetime) -> str:
+    return "morning" if start.hour < 12 else "afternoon" if start.hour < 16 else "evening"
 
 
 def load_business(path: str) -> Business:

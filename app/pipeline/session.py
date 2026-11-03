@@ -66,6 +66,14 @@ class SessionDeps:
     summarise: bool = True  # write an AI summary of the call for the dashboard
 
 
+_REQUIRED = {t["function"]["name"]: t["function"]["parameters"].get("required", []) for t in TOOL_SCHEMAS}
+
+
+def _missing_args(tc) -> bool:
+    """A tool call without its required arguments will only ask the caller a question: no 'one moment' filler."""
+    return any(not (tc.arguments or {}).get(k) for k in _REQUIRED.get(tc.name, []))
+
+
 class CallSession:
     def __init__(self, deps: SessionDeps, transport, ctx: ToolContext):
         self.d = deps
@@ -300,7 +308,7 @@ class CallSession:
                     await speak(rest)
 
                 content = strip_control_notes("".join(text_parts)) or None
-                if tool_calls and not spoken and not all(tc.name in NO_FILLER_TOOLS for tc in tool_calls):
+                if tool_calls and not spoken and not all(tc.name in NO_FILLER_TOOLS or _missing_args(tc) for tc in tool_calls):
                     # Nothing said yet and a tool is about to run: fill the silence immediately.
                     content = filler(self.ctx.language)
                     await speak(content)

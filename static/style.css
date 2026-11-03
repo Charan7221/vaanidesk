@@ -145,3 +145,29 @@ nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
 .hit .muted { white-space: pre-wrap; margin-top: 4px; }
 input[type=file] { min-width: 0; flex: 1; }
 #q { font-family: inherit; font-size: 14px; }
+
+/* OPD reception page */
+.opd-doctors { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap: 16px; }
+.opd-session { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.opd-session.is-cancelled { opacity: .75; }
+.opd-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.opd-head h2 { margin: 0 0 2px; }
+.opd-head .badge { margin-left: 4px; }
+.serving { text-align: center; white-space: nowrap; background: var(--accent-soft); border-radius: 12px; padding: 6px 14px; min-width: 96px; }
+.serving .num { font-size: 34px; font-weight: 800; line-height: 1.1; color: var(--accent); font-variant-numeric: tabular-nums; }
+.opd-stats { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); }
+.opd-stats b { color: var(--text); }
+.opd-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+button.danger-outline { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 40%, var(--line)); background: transparent; }
+button.mini { padding: 3px 9px; font-size: 12px; border-radius: 8px; }
+.opd-table td { vertical-align: middle; }
+.opd-table .tok { font-weight: 800; font-size: 18px; font-variant-numeric: tabular-nums; width: 48px; }
+.opd-table .state { white-space: nowrap; }
+.opd-table .badge { white-space: nowrap; }
+.opd-table .actions { display: flex; flex-wrap: nowrap; gap: 4px; margin-top: 6px; }
+@media (max-width: 520px) { .opd-table .actions { flex-wrap: wrap; } .opd-table .state { white-space: normal; } }
+.opd-table tr.is-serving td { background: var(--accent-soft); }
+.opd-table tr.is-past td { color: var(--muted); }
+.badge.muted-badge { background: var(--bg); color: var(--muted); }
+.stack-form { display: flex; flex-direction: column; gap: 10px; min-width: min(420px, 80vw); }
+.ok-text { color: var(--ok) !important; }

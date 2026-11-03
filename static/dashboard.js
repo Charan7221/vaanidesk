@@ -2,7 +2,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const LANG = { "en-IN": "English", "hi-IN": "Hindi", "te-IN": "Telugu" };
-  const OUTCOME_CLASS = { booked: "ok", cancelled: "warn", transferred: "warn", failed: "bad", info: "", "in progress": "" };
+  const OUTCOME_CLASS = { booked: "ok", token: "ok", cancelled: "warn", transferred: "warn", failed: "bad", info: "", "in progress": "" };
   const PERIOD = { "1": "Today", "7": "Last 7 days", "30": "Last 30 days" };
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const api = (path, opts) => fetch(path, opts).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
@@ -20,6 +20,7 @@
     $("kpis").innerHTML = [
       kpi("Calls answered", s.total_calls),
       kpi("Appointments booked", s.booked),
+      kpi("OPD tokens by phone", s.opd_tokens ?? 0),
       kpi("Booking rate", `${Math.round(s.conversion_rate * 100)}%`),
       kpi("Avg response latency", s.avg_latency_ms ? `${s.avg_latency_ms} ms` : "–"),
       kpi("Transferred to staff", s.transferred),

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk OPD</title>
+  <link rel="stylesheet" href="/static/style.css?v=6" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">OPD</span></div>
+  <nav><a href="/dashboard">Dashboard</a><a href="/opd" aria-current="page">OPD</a><a href="/calendar">Calendar</a><a href="/knowledge">Knowledge</a><a href="/demo">Live demo</a></nav>
+</header>
+<main>
+  <section class="cal-toolbar">
+    <div class="cal-nav">
+      <button id="prev" aria-label="Previous day">‹</button>
+      <button id="today">Today</button>
+      <button id="next" aria-label="Next day">›</button>
+      <strong id="dayLabel"></strong>
+    </div>
+    <span class="small muted" id="updated"></span>
+  </section>
+  <p class="small muted" style="margin:0 0 12px">Walk-in token queue for each doctor and session. Callers get tokens from VaaniDesk on the phone; give walk-ins a token here. Press <b>Next patient</b> when the doctor is ready. The page refreshes every 10 seconds.</p>
+  <div id="doctors" class="opd-doctors"></div>
+</main>
+
+<dialog id="dlg">
+  <form method="dialog" id="dlgForm">
+    <div class="head"><strong id="dlgTitle"></strong><button value="cancel" formnovalidate>Close</button></div>
+    <div class="body" id="dlgBody"></div>
+  </form>
+</dialog>
+<script src="/static/opd.js?v=6"></script>
+</body>
+</html>

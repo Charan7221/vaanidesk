@@ -65,3 +65,13 @@ policies:
   - "Never give medical advice or diagnoses. For emergencies, tell the caller to call 108 immediately."
   - "Confirm the caller's name, date and time before booking."
   - "Keep each reply short: one or two sentences, because this is a phone call."
+
+# Walk-in OPD (outpatient) tokens. Each opening window above is one OPD session per doctor
+# (e.g. morning 09:00-13:00 and evening 17:00-20:00). Callers can take a token number by phone,
+# ask how many patients are ahead of them, and staff run the queue from the dashboard's OPD page.
+opd:
+  enabled: true
+  avg_consult_minutes: 10       # used for the estimated waiting time
+  max_tokens_per_session: 40    # per doctor, per session
+  stop_before_end_minutes: 30   # no new tokens in the last 30 minutes of a session
+  advance_days: 2               # tokens for today and the next 2 days

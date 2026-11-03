@@ -4,7 +4,7 @@
 # expect:
 #   tools_called:   tools that must be called at least once
 #   tools_not_called: tools that must NOT be called
-#   outcome:        final call outcome (booked | cancelled | transferred | info)
+#   outcome:        final call outcome (booked | token | cancelled | transferred | info)
 #   reply_language: script of the agent's LAST reply (en-IN | hi-IN | te-IN)
 #   max_words:      every agent reply must be at most this many words (voice brevity)
 
@@ -130,3 +130,48 @@
   expect:
     tools_called: [search_clinic_knowledge]
     reply_language: te-IN
+
+# ---- OPD walk-in tokens ({opd_day} = today, or the next day whose OPD still gives tokens)
+- name: opd_token_english
+  language: en-IN
+  turns:
+    - "Hi, I don't need a fixed time, I just want an OPD token for Dr. Rao {opd_day}."
+    - "The name is Ravi Kumar."
+    - "Yes, that's right."
+  expect:
+    tools_called: [get_opd_token]
+    tools_not_called: [book_appointment]
+    outcome: token
+    reply_language: en-IN
+    max_words: 50
+
+- name: opd_token_telugu
+  language: te-IN
+  turns:
+    - "నమస్కారం, {opd_day} డాక్టర్ రావు గారి దగ్గర OPD టోకెన్ కావాలి."
+    - "నా పేరు సాయి చరణ్."
+    - "అవును."
+  expect:
+    tools_called: [get_opd_token]
+    outcome: token
+    reply_language: te-IN
+
+- name: opd_queue_status
+  language: en-IN
+  seed_opd_token: { patient_name: "Meena", ahead: 3 }
+  turns:
+    - "I have a token for Dr. Rao. How many people are before me and when should I come?"
+  expect:
+    tools_called: [check_opd_status]
+    tools_not_called: [get_opd_token, book_appointment]
+    contains_any: ["3", "three"]
+    not_contains: ["patient 1", "patient 2"]
+
+- name: rag_opd_registration
+  language: en-IN
+  turns:
+    - "It's my first visit to your OPD. What ID should I bring for registration?"
+  expect:
+    tools_called: [search_clinic_knowledge]
+    tools_not_called: [get_opd_token]
+    contains_any: ["aadhaar", "photo id", "voter", "driving"]

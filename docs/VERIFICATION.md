@@ -15,7 +15,7 @@ Keep that window open; errors appear there. Use **headphones** for voice tests, 
 
 ### 1.1 Automated tests
 - [x] In a **second** Command Prompt (activate `.venv` first): `pip install -r requirements-dev.txt` then `pytest -q`
-  - **Expected:** `68 passed`
+  - **Expected:** `109 passed`
 - [x] `python -m scripts.check_setup`
   - **Expected:** `[PASS]` for LLM, Sarvam TTS (stream), Sarvam TTS (rest) and STT. Google Calendar shows `[SKIP]`.
 - Notes:
@@ -53,6 +53,17 @@ Set *Preferred greeting language* before **Start call**.
 - [x] **Cancel by voice:** after booking, call again: *"I want to cancel my appointment"* (same phone number in the box) → **Expected:** the AI finds it, asks you to confirm, and cancels it.
 - [x] **Interrupt:** while the AI is speaking a long sentence, start talking → **Expected:** it stops within about 1 second and listens.
 - [x] **Silence / hang up:** click *End call* in the middle of a reply → **Expected:** no errors in the terminal, and the call appears on the dashboard.
+- Notes:
+
+### 1.4b OPD tokens
+Open http://localhost:8000/opd (dashboard login) in one tab and the demo in another.
+- [ ] Demo: *"I want an OPD token for Dr. Rao today"* → give a name. **Expected:** a token number, session and "please come by" time; the token appears on the OPD page as *AI call*.
+- [ ] Ask again in the same call. **Expected:** the same token number, not a second one.
+- [ ] OPD page: **+ Walk-in token** twice, then **Next patient**. **Expected:** "Now serving" shows 1; the next press finishes 1 and calls 2.
+- [ ] Demo (new call, same phone): *"Which number is going on and when should I come?"* **Expected:** your position and an estimated time.
+- [ ] OPD page: **Doctor late** → 30 minutes. Ask again in the demo. **Expected:** the estimate moves by about 30 minutes and the agent mentions the delay.
+- [ ] OPD page: **Cancel OPD** for Dr. Lakshmi with a note. Demo: *"Token for Dr. Lakshmi today."* **Expected:** the agent says her OPD is cancelled and offers another option.
+- [ ] RAG: *"What ID do I need for my first OPD visit?"* **Expected:** Aadhaar / photo ID from `opd.md`.
 - Notes:
 
 ### 1.5 Measure quality (for README and resume)

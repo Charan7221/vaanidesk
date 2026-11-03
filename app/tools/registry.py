@@ -13,6 +13,7 @@ from ..db import as_utc
 from ..knowledge import KnowledgeStore
 from ..phone import validate_phone
 from .calendar import LocalCalendar, SlotUnavailable
+from .opd import OpdDesk, OpdError
 from .twilio_client import TwilioClient
 
 log = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ class ToolContext:
     #: numbers the caller said out loud and that matched a booking (lets them manage bookings made
     #: from another phone). Bookings are only changeable by their owner: see ToolExecutor._owns.
     verified_phones: set[str] = field(default_factory=set)
+    opd_token_ids: list[str] = field(default_factory=list)  # OPD tokens issued in this call
 
 
 TOOL_SCHEMAS: list[dict] = [
@@ -138,6 +140,64 @@ TOOL_SCHEMAS: list[dict] = [
     {
         "type": "function",
         "function": {
+            "name": "get_opd_token",
+            "description": "Give the caller a walk-in OPD token number in a doctor's queue (no fixed time; patients "
+                           "are seen in token order). Use when the caller asks for a token / OPD number, wants to "
+                           "'just come and see the doctor' today, or no appointment slot suits them. Call it ONLY "
+                           "when you already have the doctor, the patient's name and (if the caller's number is "
+                           "unknown) their mobile number; otherwise ask for what is missing in one question first.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "provider_id": {"type": "string"},
+                    "patient_name": {"type": "string"},
+                    "date": {"type": "string", "description": "YYYY-MM-DD; omit for today"},
+                    "session": {"type": "string", "enum": ["morning", "afternoon", "evening"],
+                                "description": "only if the caller named one; omit for the next session still giving tokens"},
+                    "age": {"type": "integer", "description": "patient's age in years, if mentioned"},
+                    "reason": {"type": "string", "description": "short reason for the visit, if mentioned"},
+                    "phone": {"type": "string", "description": "mobile number the caller gave, digits only. Omit if "
+                                                              "the caller's number is already known."},
+                },
+                "required": ["provider_id", "patient_name"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_opd_status",
+            "description": "Live OPD queue: the caller's own token (patients ahead, estimated time), which token "
+                           "each doctor is seeing now, whether a doctor is running late or the OPD is cancelled, "
+                           "and whether tokens are still available. Use for 'what number is going on', "
+                           "'how long will I wait', 'is the doctor available today'.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "provider_id": {"type": "string", "description": "omit for every doctor"},
+                    "date": {"type": "string", "description": "YYYY-MM-DD; omit for today"},
+                    "phone": {"type": "string", "description": "mobile number the token was taken with, if the "
+                                                              "caller gives a different one"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "cancel_opd_token",
+            "description": "Cancel the caller's OPD token (id from get_opd_token or check_opd_status) after they "
+                           "confirm.",
+            "parameters": {
+                "type": "object",
+                "properties": {"token_id": {"type": "string"}},
+                "required": ["token_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "transfer_to_human",
             "description": "Transfer the call to staff: caller asks for a person, is upset, has a medical emergency, "
                            "or the request is outside what you can do.",
@@ -175,11 +235,12 @@ def _fmt_time(dt: datetime) -> str:
 
 class ToolExecutor:
     def __init__(self, business: Business, calendar: LocalCalendar, twilio: TwilioClient,
-                 knowledge: KnowledgeStore | None = None):
+                 knowledge: KnowledgeStore | None = None, opd: OpdDesk | None = None):
         self.biz = business
         self.cal = calendar
         self.twilio = twilio
         self.knowledge = knowledge
+        self.opd = opd or OpdDesk(calendar.db, business)
         self._handlers: dict[str, Callable[[ToolContext, dict], Awaitable[dict]]] = {
             "search_clinic_knowledge": self.search_clinic_knowledge,
             "check_availability": self.check_availability,
@@ -187,6 +248,9 @@ class ToolExecutor:
             "find_appointments": self.find_appointments,
             "cancel_appointment": self.cancel_appointment,
             "reschedule_appointment": self.reschedule_appointment,
+            "get_opd_token": self.get_opd_token,
+            "check_opd_status": self.check_opd_status,
+            "cancel_opd_token": self.cancel_opd_token,
             "transfer_to_human": self.transfer_to_human,
             "end_call": self.end_call,
         }
@@ -418,6 +482,121 @@ class ToolExecutor:
                            f"{' with ' + provider.name if provider else ''}. Ref {new.id}."))
         return {"rescheduled": True, "appointment_id": new.id, "previous_appointment_cancelled": old.id,
                 "when": when, "provider": provider.name if provider else None}
+
+    # ------------------------------------------------------------------ OPD tokens
+    def _opd_off(self) -> dict | None:
+        if self.biz.opd.enabled:
+            return None
+        return {"reason": "this clinic does not give OPD tokens",
+                "instruction": "Offer a fixed-time appointment instead (check_availability)."}
+
+    def _caller_phones(self, ctx: ToolContext, spoken: str | None = None) -> set[str]:
+        return {p for p in (ctx.caller_phone, spoken, *ctx.verified_phones) if p}
+
+    async def get_opd_token(self, ctx: ToolContext, args: dict) -> dict:
+        if off := self._opd_off():
+            return {"issued": False, **off}
+        provider_id = self._provider_id(args.get("provider_id"))
+        if provider_id is None and len(self.biz.providers) > 1:
+            return {"issued": False, "reason": "doctor not specified",
+                    "instruction": "Ask which doctor the caller wants to see.",
+                    "doctors": [{"provider_id": p.id, "provider": p.name, "specialty": p.specialty}
+                                for p in self.biz.providers]}
+        provider_id = provider_id or (self.biz.providers[0].id if self.biz.providers else None)
+        if provider_id is None:
+            return {"issued": False, "reason": "no doctors configured"}
+
+        name = (args.get("patient_name") or "").strip()
+        if len(name) < 2 or name.lower().strip(" .") in _PLACEHOLDER_NAMES:
+            return {"issued": False, "reason": "patient name missing",
+                    "instruction": "Ask for the patient's name first. Never use placeholders."}
+        if args.get("phone"):
+            phone, problem = validate_phone(args["phone"])
+            if problem:
+                return {"issued": False, "reason": f"invalid phone number: {problem}",
+                        "instruction": "Tell the caller the number seems incorrect, explain why, and ask them to "
+                                       "say it again slowly. Then read it back to confirm."}
+        else:
+            phone = ctx.caller_phone
+            if not phone:
+                return {"issued": False, "reason": "phone number missing",
+                        "instruction": "Ask for the caller's mobile number, read it back to confirm, then try again."}
+        try:
+            age = int(args["age"]) if args.get("age") not in (None, "") else None
+        except (TypeError, ValueError):
+            age = None
+        if age is not None and not 0 <= age <= 120:
+            age = None
+        day = self._parse_date(args["date"]) if args.get("date") else self.biz.now().date()
+
+        try:
+            token, created = await self.opd.issue(provider_id=provider_id, day=day, patient_name=name, phone=phone,
+                                                  session_hint=args.get("session"), age=age,
+                                                  reason=args.get("reason"), source="call", call_id=ctx.call_id)
+        except OpdError as exc:
+            return {"issued": False, **exc.as_dict()}
+
+        if token.id not in ctx.opd_token_ids:
+            ctx.opd_token_ids.append(token.id)
+        ctx.outcome = "token"
+        pos = await self.opd.position(token)
+        patient = await self.opd.patient(token.patient_id)
+        sms_sent = False
+        if created and phone:
+            arrive = pos.get("please_arrive_by")
+            sms = (f"{self.biz.name}: OPD token {token.number} for {token.patient_name} with {pos['doctor']}, "
+                   f"{pos['weekday']} {pos['session']}." + (f" Please arrive by {arrive}." if arrive and arrive != "now"
+                                                             else "") + f" Patient no. {patient.number}.")
+            asyncio.create_task(self.twilio.send_message(phone, sms))
+            sms_sent = self.twilio.enabled
+        return {"issued": True, "already_had_token": not created, **pos,
+                "patient_number": patient.number if patient else None, "confirmation_sms": sms_sent,
+                "instruction": "Tell the caller the token number, the doctor, the session and the time to arrive by "
+                               "(say it is an estimate). If already_had_token is true, say they already have this "
+                               "token. Patients with fixed appointments may be seen between tokens."}
+
+    async def check_opd_status(self, ctx: ToolContext, args: dict) -> dict:
+        if off := self._opd_off():
+            return off
+        today = self.biz.now().date()
+        spoken = validate_phone(args.get("phone") or "")[0]
+        mine = {t.id: t for t in await self.opd.find_active(self._caller_phones(ctx, spoken), today)}
+        for token_id in ctx.opd_token_ids:
+            t = await self.opd.get(token_id)
+            if t and t.status in ("waiting", "in_consultation"):
+                mine[t.id] = t
+        if spoken and any(t.phone == spoken for t in mine.values()):
+            ctx.verified_phones.add(spoken)
+        day = self._parse_date(args["date"]) if args.get("date") else today
+        provider_id = self._provider_id(args.get("provider_id"))
+        providers = [self.biz.provider(provider_id)] if provider_id else self.biz.providers
+        sessions = self.biz.opd_sessions(day)
+        result: dict[str, Any] = {"date": day.isoformat(), "weekday": day.strftime("%A"),
+                                  "your_tokens": [await self.opd.position(t) for t in
+                                                  sorted(mine.values(), key=lambda t: (t.day, t.session))[:3]]}
+        if not sessions:
+            result["note"] = "Clinic closed that day. Opening hours: " + self.biz.hours_summary()
+        else:
+            result["doctors"] = [{"provider_id": p.id, "doctor": p.name, "specialty": p.specialty,
+                                  "sessions": [await self.opd.queue_summary(day, p.id, s) for s in sessions]}
+                                 for p in providers]
+        result["instruction"] = ("Answer only what the caller asked, briefly: their token's position and estimated "
+                                 "time, or which token number a doctor is seeing now. Times are estimates. Never "
+                                 "mention other patients' names.")
+        return result
+
+    async def cancel_opd_token(self, ctx: ToolContext, args: dict) -> dict:
+        token = await self.opd.get(args.get("token_id", ""))
+        if not token or token.status not in ("waiting", "in_consultation"):
+            return {"cancelled": False, "reason": "not found",
+                    "instruction": "Use check_opd_status to find the caller's token first."}
+        if token.id not in ctx.opd_token_ids and token.phone not in self._caller_phones(ctx):
+            return {"cancelled": False, "reason": "not the caller's token",
+                    "instruction": "You can only cancel the caller's own token. Ask for the mobile number used "
+                                   "when taking it and use check_opd_status with it."}
+        await self.opd.set_token_status(token.id, "cancelled")
+        ctx.outcome = "cancelled"
+        return {"cancelled": True, "token_number": token.number}
 
     async def search_clinic_knowledge(self, ctx: ToolContext, args: dict) -> dict:
         query = (args.get("query") or "").strip()

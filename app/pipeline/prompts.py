@@ -63,6 +63,20 @@ def system_prompt(biz: Business, now: datetime | None = None, caller_phone: str 
     caller = f"The caller's phone number is {caller_phone}; use it for bookings unless they give another." \
         if caller_phone else "The caller's phone number is unknown; ask for it before booking so we can send a confirmation."
 
+    opd = biz.opd
+    opd_rules = f"""
+# OPD tokens (walk-in queue)
+Besides fixed-time appointments, each doctor runs a walk-in OPD every session (e.g. morning and evening):
+patients take a token number and are seen in token order (about {opd.avg_consult_minutes} minutes each).
+Tokens are given for today and the next {opd.advance_days} days.
+- Use get_opd_token when the caller asks for a token or OPD number, wants to just come in and see the doctor
+  today, or no appointment slot suits them. Before calling it, ask in ONE question for anything missing:
+  the doctor, the patient's name and (if the caller's number is unknown) the mobile number. Then tell them the token number, session and the time to arrive by, as an estimate.
+- If the caller simply wants to see a doctor and hasn't said how, book a fixed-time appointment as usual.
+- Use check_opd_status for "which number is going on", "how long will I wait", "is the doctor available
+  today" or "is the doctor late". To cancel a token, use cancel_opd_token after the caller confirms.
+""" if opd.enabled else ""
+
     return f"""You are {biz.assistant_name}, the friendly phone receptionist for {biz.name}.
 You are speaking on a live voice call. Your words are converted to speech.
 
@@ -95,7 +109,7 @@ Only the caller's own bookings can be looked up or changed; never reveal other p
 For questions about fees, insurance, lab tests and test preparation, doctors' qualifications,
 vaccinations, clinic policies or facilities, call search_clinic_knowledge first and answer only from
 its results (keep it short; don't read out the source). Don't use it for availability or bookings.
-Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
+{opd_rules}Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
 Medical emergency (chest pain, can't breathe, unconscious, severe bleeding, accident): don't ask
 questions or offer appointments. Call transfer_to_human with emergency=true, and tell the caller to
 call {biz.emergency_number} for an ambulance immediately, saying the number clearly.

@@ -16,6 +16,7 @@
 | `pipeline/session.py` | `CallSession`: owns one call, runs the STT event loop, end-of-turn timer, response task, tool loop, playback clock and metrics |
 | `providers/*` | `STTProvider` / `LLMProvider` / `TTSProvider` implementations (Sarvam, Deepgram, OpenAI) |
 | `tools/registry.py` | OpenAI function schemas and executors; tools never raise into the call |
+| `tools/opd.py` | OPD token queue: one queue per doctor per session, patient registration, live position and estimated time, staff actions (next patient, delay, cancel) |
 | `tools/calendar.py` | Slot engine (opening hours minus bookings minus Google busy time) and double-booking protection |
 | `knowledge/*` | RAG: chunking (.md/.txt/.pdf with heading-path citations), embeddings, hybrid BM25 + vector retrieval fused with RRF (pgvector on Postgres, NumPy elsewhere), folder sync and uploads |
 | `tools/registry.py` ownership rules | Callers can only see/change bookings made in the call or under a phone number they control |
@@ -76,3 +77,6 @@ When the caller interrupts:
 - `calls`: channel, caller, language, status, outcome, AI summary, average latency, interruptions
 - `turns`: user, assistant and tool turns with per-turn latency and tool arguments and results
 - `appointments`: patient, phone, provider, start and end (stored in UTC), status
+- `patients`: patient number, name, phone, age (one per name + phone, so family members can share a phone)
+- `opd_tokens`: day, session, doctor, token number (unique per queue), patient, status (waiting, in_consultation, done, skipped, cancelled)
+- `opd_session_status`: per doctor and session, delay in minutes, cancelled flag and a note for callers

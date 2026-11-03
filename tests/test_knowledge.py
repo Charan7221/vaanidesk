@@ -105,7 +105,7 @@ async def test_hybrid_search_uses_vectors_and_skips_unchanged_files(db):
     s = KnowledgeStore(db, emb)
     first = await s.sync_folder(KNOWLEDGE)
     assert set(first) == {"clinic-policies.md", "doctors.md", "fees-and-payments.md", "insurance.md",
-                          "lab-tests.md", "vaccinations.md"}  # README.md is skipped
+                          "lab-tests.md", "opd.md", "vaccinations.md"}  # README.md is skipped
     assert all(d["embedded"] for d in await s.documents())
     hits = await s.search("fasting before blood sugar test")
     assert hits[0].chunk.citation == "lab-tests.md › Preparing for a test" and hits[0].similarity is not None
