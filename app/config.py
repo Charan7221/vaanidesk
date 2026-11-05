@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./vaanidesk.db"
 
     # --- Dashboard auth (HTTP Basic) ---
-    admin_user: str = "admin"
+    admin_user: str = "admin"  # platform super admin (all clinics)
     admin_password: str = "change-me"
+    secret_key: str = ""  # signs login cookies; set a long random value in production
 
     # --- LLM (OpenAI) ---
     openai_api_key: str = ""
@@ -65,6 +66,9 @@ class Settings(BaseSettings):
     twilio_phone_number: str = ""  # E.164, e.g. +14155550123
     twilio_whatsapp_from: str = ""  # e.g. whatsapp:+14155238886 (optional)
     twilio_validate_signature: bool = True
+
+    # --- Exotel (Indian phone numbers; see app/transports/exotel.py for the call flow) ---
+    exotel_stream_secret: str = ""  # password in the Voicebot URL: wss://vaanidesk:<secret>@host/exotel/stream
 
     # --- Google Calendar (optional; local calendar is used if unset) ---
     google_service_account_file: str = ""

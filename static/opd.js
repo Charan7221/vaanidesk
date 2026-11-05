@@ -160,8 +160,6 @@
   $("prev").onclick = () => shift(-1);
   $("next").onclick = () => shift(1);
   $("today").onclick = () => { day = new Date(); day.setHours(0, 0, 0, 0); load(); };
-
-  fetch("/api/public-config").then(r => r.json()).then(c => ($("bizName").textContent = c.business));
   load().catch(e => ($("doctors").innerHTML = `<p class="muted">Could not load the OPD queue: ${esc(e.message)}</p>`));
   setInterval(() => { if (!dlg.open && !document.hidden) load().catch(() => {}); }, 10000);
 })();

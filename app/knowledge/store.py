@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 from sqlalchemy import delete, func, select, text
 
-from ..db import Database, KnowledgeChunk
+from ..db import Database, KnowledgeChunk, current_clinic
 from .documents import Chunk, chunk_document, content_hash, folder_documents
 from .embeddings import Embedder
 from .ranking import BM25, cosine, rrf
@@ -157,10 +157,12 @@ class KnowledgeStore:
             # on a vector(n) column only if this grows to many thousands.)
             sql = text("""SELECT id, 1 - ((embedding::text)::vector <=> CAST(:q AS vector)) AS sim
                           FROM knowledge_chunks WHERE embedding IS NOT NULL AND embedding_model = :m
+                          AND clinic_id = :c
                           ORDER BY (embedding::text)::vector <=> CAST(:q AS vector) LIMIT :n""")
             async with self.db.session() as s:
                 rows = (await s.execute(sql, {"q": "[" + ",".join(map(str, q.tolist())) + "]",
-                                              "m": self.embedder.model, "n": CANDIDATES})).all()
+                                              "m": self.embedder.model, "n": CANDIDATES,
+                                              "c": current_clinic.get()})).all()
             pos = {cid: i for i, cid in enumerate(self._ids)}
             return {pos[r.id]: float(r.sim) for r in rows if r.id in pos}
         valid = ~np.isnan(self._vectors).any(axis=1)

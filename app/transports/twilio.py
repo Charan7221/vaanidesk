@@ -15,6 +15,7 @@ from xml.sax.saxutils import quoteattr
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
 from ..audio import pcm16_to_ulaw, ulaw_to_pcm16
+from ..db import DEFAULT_CLINIC, current_clinic
 from ..security import is_valid_twilio_request
 from ..tools.twilio_client import TwilioClient
 from .base import Transport
@@ -89,8 +90,9 @@ async def incoming_call(request: Request) -> Response:
                 "Please call again in a few minutes.</Say><Hangup/></Response>")
         return Response(busy, media_type="application/xml")
 
+    clinic = await state.clinic_for_number(form.get("To"))  # each clinic has its own number(s)
     xml = _twiml_stream(f"{s.public_ws_base.rstrip('/')}/twilio/stream",
-                        {"from": form.get("From", ""), "callSid": form.get("CallSid", "")})
+                        {"from": form.get("From", ""), "callSid": form.get("CallSid", ""), "clinic": clinic})
     return Response(xml, media_type="application/xml")
 
 
@@ -107,6 +109,8 @@ async def media_stream(ws: WebSocket) -> None:
                 start = msg["start"]
                 params = start.get("customParameters") or {}
                 call_sid = start.get("callSid") or params.get("callSid", "")
+                clinic = params.get("clinic") or DEFAULT_CLINIC
+                current_clinic.set(clinic if clinic in state.tenants else DEFAULT_CLINIC)
                 transport = TwilioTransport(ws, start["streamSid"], call_sid, state.twilio)
                 session = await state.new_session(transport, channel="phone", caller=params.get("from") or None,
                                                   external_id=call_sid)
@@ -123,5 +127,13 @@ async def media_stream(ws: WebSocket) -> None:
         log.exception("Twilio stream error")
     finally:
         if session:
-            await session.close()
-            state.release(session)
+            # Finish the call record even if this handler is being cancelled (client vanished): a database
+            # write interrupted half-way leaves a broken connection behind.
+            await asyncio.shield(_finish(state, session))
+
+
+async def _finish(state, session) -> None:
+    try:
+        await session.close()
+    finally:
+        state.release(session)

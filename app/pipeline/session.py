@@ -33,6 +33,7 @@ from .prompts import (
     filler,
     greeting_segments,
     language_rule,
+    outage_message,
     strip_control_notes,
     system_prompt,
 )
@@ -140,6 +141,10 @@ class CallSession:
             self.ctx.call_id, status=status, outcome=self.ctx.outcome or "info", language=self.ctx.language,
             avg_latency_ms=avg, turns_count=len(self._latencies), interruptions=self.interruptions,
         )
+        try:
+            await self._record_unfinished()
+        except Exception:
+            log.exception("[%s] could not record follow-up", self.ctx.call_id)
         if self.d.summarise:
             asyncio.create_task(self._summarise())
 
@@ -359,9 +364,10 @@ class CallSession:
                 await self.d.db.add_turn(self.ctx.call_id, "assistant", " ".join(spoken),
                                          language=self.ctx.language, meta={"interrupted": True})
             raise
-        except Exception as exc:  # provider outage etc. — keep the call alive
+        except Exception as exc:  # provider outage etc.: never leave the caller in silence
             log.exception("[%s] response failed", self.ctx.call_id)
             await self.t.send_event({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            await self._handle_outage(user_text, exc, spoken)
         finally:
             if player and not player.done():
                 player.cancel()
@@ -392,6 +398,48 @@ class CallSession:
             for tc in msg.get("tool_calls") or []:
                 ordered.append(pending_tools[tc["id"]])
         self.messages = ordered
+
+    #: business-relevant tools: if the caller used them but the call ended without a result, staff should follow up
+    TASK_TOOLS = {"check_availability", "book_appointment", "reschedule_appointment", "find_appointments",
+                  "cancel_appointment", "get_opd_token", "find_doctor"}
+    #: outcomes that mean the caller's request was handled
+    DONE_OUTCOMES = {"booked", "token", "cancelled", "callback"}
+
+    async def _handle_outage(self, user_text: str, exc: Exception, spoken: list[str]) -> None:
+        """The AI (LLM/TTS) failed: apologise with a fixed message, log a follow-up, and hand over to staff."""
+        can_transfer = self.ctx.channel == "phone" and bool(self.d.business.handoff_number)
+        message = outage_message(self.ctx.language, "transfer" if can_transfer else "callback")
+        await self.d.tools.add_follow_up(
+            "outage", f"AI failed mid-call ({type(exc).__name__}). Caller's last words: {user_text[:300]}",
+            call_id=self.ctx.call_id, phone=self.ctx.caller_phone)
+        await self.t.send_event({"type": "assistant", "text": message, "final": True})
+        await self.d.db.add_turn(self.ctx.call_id, "assistant", message, language=self.ctx.language,
+                                 meta={"fallback": True})
+        try:  # the voice service may be what failed: then the caller only gets the transfer
+            tts = await self.d.tts.open(self.ctx.language, self.t.sample_rate)
+            first = asyncio.Event()
+            player = asyncio.create_task(self._play(tts, first))
+            await tts.send_text(message)
+            await tts.finish()
+            await asyncio.wait_for(player, timeout=15)
+            await tts.close()
+        except Exception:
+            log.warning("[%s] fallback message could not be spoken", self.ctx.call_id)
+        self.ctx.outcome = self.ctx.outcome or ("transferred" if can_transfer else "callback")
+        self.ctx.pending_action = "transfer" if can_transfer else "hangup"
+        await self._run_pending_action()
+
+    async def _record_unfinished(self) -> None:
+        """A call that ended before the caller's request was done goes on the staff follow-up list."""
+        if self.ctx.outcome in self.DONE_OUTCOMES or self.ctx.outcome == "transferred":
+            return
+        used = self.ctx.tools_used & self.TASK_TOOLS
+        if not used:
+            return
+        asked = [m["content"] for m in self.messages if m["role"] == "user" and m.get("content")]
+        await self.d.tools.add_follow_up(
+            "abandoned", "Call ended before the request was completed. Caller said: " + " | ".join(asked)[-600:],
+            call_id=self.ctx.call_id, phone=self.ctx.caller_phone)
 
     async def _run_pending_action(self) -> None:
         action = self.ctx.pending_action

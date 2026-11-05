@@ -13,6 +13,7 @@ from datetime import UTC, date, datetime, timedelta
 from urllib.parse import quote
 
 import httpx
+from sqlalchemy.exc import IntegrityError
 
 from ..business import Business
 from ..db import Appointment, Database, as_utc
@@ -65,15 +66,20 @@ class LocalCalendar:
         return free
 
     async def book(self, *, patient_name: str, start: datetime, provider_id: str | None,
-                   phone: str | None = None, reason: str | None = None, call_id: str | None = None) -> Appointment:
+                   phone: str | None = None, reason: str | None = None, call_id: str | None = None,
+                   confirmed: bool | None = None) -> Appointment:
         free = await self.available_slots(start.date(), provider_id)
         if start not in free:
             raise SlotUnavailable(start.isoformat())
         end = start + timedelta(minutes=self.biz.slot_minutes)
-        appt = await self.db.add_appointment(
-            patient_name=patient_name, phone=phone, provider_id=provider_id, start=as_utc(start),
-            end=as_utc(end), reason=reason, call_id=call_id,
-        )
+        try:
+            appt = await self.db.add_appointment(
+                patient_name=patient_name, phone=phone, provider_id=provider_id, start=as_utc(start),
+                end=as_utc(end), reason=reason, call_id=call_id, **({"confirmed": confirmed} if confirmed is not None
+                                                                    else {}),
+            )
+        except IntegrityError as exc:  # another call booked the same slot a moment earlier
+            raise SlotUnavailable(start.isoformat()) from exc
         await self.after_booking(appt)
         return appt
 

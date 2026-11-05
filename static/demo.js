@@ -15,7 +15,8 @@
   let partialUser = null, partialAssistant = null;
   let inCall = false;
 
-  fetch("/api/public-config").then(r => r.json()).then(cfg => {
+  const CLINIC = new URLSearchParams(location.search).get("clinic") || "";
+  fetch(`/api/public-config${CLINIC ? "?clinic=" + encodeURIComponent(CLINIC) : ""}`).then(r => r.json()).then(cfg => {
     document.title = `${cfg.business} · VaaniDesk`;
     $("intro").textContent = `Talk to ${cfg.assistant}, the AI receptionist for ${cfg.business}, in English, हिन्दी or తెలుగు. Try: “I want to book an appointment tomorrow evening.”`;
     if (cfg.access_code_required) $("codeField").hidden = false;
@@ -132,7 +133,7 @@
     ws.binaryType = "arraybuffer";
     ws.onopen = async () => {
       inCall = true;
-      ws.send(JSON.stringify({ type: "start", language: $("lang").value, phone: $("phone").value.trim(), code: $("code").value }));
+      ws.send(JSON.stringify({ type: "start", clinic: CLINIC || undefined, language: $("lang").value, phone: $("phone").value.trim(), code: $("code").value }));
       if (micStream && micCtx) {
         const src = micCtx.createMediaStreamSource(micStream);
         micNode = new AudioWorkletNode(micCtx, "mic-processor");

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Setup</title>
+  <link rel="stylesheet" href="/static/style.css?v=9" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Setup</span></div>
+  <nav><a href="/dashboard">Dashboard</a><a href="/opd">OPD</a><a href="/calendar">Calendar</a><a href="/knowledge">Knowledge</a><a href="/demo">Live demo</a></nav>
+</header>
+<main class="setup">
+  <div class="setup-bar">
+    <p class="small muted" id="fileNote" hidden>This clinic currently reads <code id="fileName"></code> at every restart. Saving here switches it to the settings below (stored in the database).</p>
+    <button class="primary" id="save">Save changes</button>
+    <span class="small" id="status"></span>
+  </div>
+
+  <section class="panel"><h2>Clinic</h2><div class="grid2" id="clinic"></div></section>
+  <section class="panel"><h2>Opening hours</h2><p class="small muted">Each range is one OPD session, e.g. <code>09:00-13:00, 17:00-20:00</code>. Leave empty for closed.</p><div class="grid2" id="hours"></div></section>
+  <section class="panel"><h2>Doctors</h2><div class="table-wrap"><table class="edit"><thead><tr><th>Id</th><th>Name</th><th>Specialty</th><th>Department</th><th>Own fee</th><th></th></tr></thead><tbody id="doctors"></tbody></table></div><button id="addDoctor">+ Add doctor</button></section>
+  <section class="panel"><h2>Departments and routing</h2><p class="small muted">"Treats" = everyday problems in simple English, comma separated. The receptionist uses them to send new patients to the right doctor.</p><div id="depts"></div><button id="addDept">+ Add department</button></section>
+  <section class="panel"><h2>Fees</h2><div class="grid2" id="fees"></div></section>
+  <section class="panel"><h2>FAQ</h2><div id="faq"></div><button id="addFaq">+ Add question</button></section>
+  <section class="panel"><h2>Services, prices and policies</h2><div class="grid2" id="texts"></div></section>
+  <section class="panel"><h2>Safety, privacy and OPD</h2><div class="grid2" id="settings"></div></section>
+
+  <section class="panel"><h2>Staff accounts</h2>
+    <div class="table-wrap"><table><thead><tr><th>Email</th><th>Role</th><th>Last login</th><th></th></tr></thead><tbody id="staff"></tbody></table></div>
+    <form id="staffForm" class="row-form">
+      <input name="email" placeholder="email" required /><input name="name" placeholder="name" />
+      <select name="role"><option value="staff">Receptionist</option><option value="owner">Owner</option></select>
+      <input name="password" type="password" placeholder="temporary password (10+ chars)" required />
+      <button class="primary">Add</button>
+    </form>
+    <p class="err small" id="staffErr"></p>
+  </section>
+  <section class="panel"><h2>Activity log</h2><div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>What</th><th>Details</th></tr></thead><tbody id="audit"></tbody></table></div></section>
+</main>
+<script src="/static/setup.js?v=1"></script>
+<script src="/static/nav.js?v=1"></script>
+</body>
+</html>

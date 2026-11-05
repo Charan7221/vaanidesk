@@ -93,6 +93,13 @@ class Business(BaseModel):
     handoff_number: str = ""
     policies: list[str] = Field(default_factory=list)
     opd: OPDConfig = Field(default_factory=OPDConfig)
+    # Supervised pilot: bookings and tokens made by the AI stay "pending" until staff confirm them
+    # on the dashboard; the caller is told the clinic will confirm by SMS.
+    pilot_mode: bool = False
+    # Tell callers at the start that they're speaking to an AI assistant and the call is transcribed.
+    consent_notice: bool = True
+    transcript_retention_days: int = 90  # call transcripts and summaries are deleted after this (0 = keep)
+    staff_alert_phone: str = ""  # SMS/WhatsApp for new follow-ups (defaults to handoff_number)
     departments: list[Department] = Field(default_factory=list)
     fees: FeePolicy = Field(default_factory=FeePolicy)
     # Words that may mean an emergency: the agent checks before routing to a normal OPD doctor.

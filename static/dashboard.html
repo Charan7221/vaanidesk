@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VaaniDesk Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css?v=6" />
+  <link rel="stylesheet" href="/static/style.css?v=9" />
 </head>
 <body>
 <header class="top">
@@ -19,6 +19,17 @@
 </header>
 <main>
   <p class="small muted" id="period" style="margin:0 0 10px"></p>
+  <section class="panel attention" id="attention" hidden>
+    <h2>Needs attention <span class="badge warn" id="attnCount"></span></h2>
+    <div id="pendingWrap" hidden>
+      <h3 class="small muted">Pilot mode: AI bookings waiting for your confirmation</h3>
+      <div class="table-wrap"><table><thead><tr><th>Patient</th><th>Doctor</th><th>When</th><th></th></tr></thead><tbody id="pending"></tbody></table></div>
+    </div>
+    <div id="followWrap" hidden>
+      <h3 class="small muted">Follow-ups: call these patients back</h3>
+      <div class="table-wrap"><table><thead><tr><th>When</th><th>Patient</th><th>Why</th><th></th></tr></thead><tbody id="follow"></tbody></table></div>
+    </div>
+  </section>
   <section class="kpis" id="kpis"></section>
   <div class="two-col">
     <section class="panel">
@@ -45,6 +56,7 @@
   <div class="head"><strong id="dlgTitle">Call</strong><button id="dlgClose">Close</button></div>
   <div class="body"><div id="dlgBody" class="transcript" style="height:auto"></div></div>
 </dialog>
-<script src="/static/dashboard.js?v=6"></script>
+<script src="/static/dashboard.js?v=7"></script>
+<script src="/static/nav.js?v=1"></script>
 </body>
 </html>

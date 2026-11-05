@@ -23,6 +23,33 @@ ALSO_SPEAK = {
 }
 
 
+# Said once at the start of every call when business.consent_notice is on.
+CONSENT = {
+    "en-IN": "I'm an AI assistant, and this call is transcribed to help the clinic.",
+    "hi-IN": "मैं एक AI सहायक हूँ, और क्लिनिक की मदद के लिए यह कॉल लिखित रूप में सहेजी जाती है।",
+    "te-IN": "నేను AI సహాయకురాలిని, క్లినిక్ సహాయం కోసం ఈ కాల్ రాతపూర్వకంగా నమోదు చేయబడుతుంది.",
+}
+
+# Spoken when the AI services fail mid-call: never leave the caller in silence.
+OUTAGE = {
+    "en-IN": "Sorry, I'm having a technical problem. {action}",
+    "hi-IN": "माफ़ कीजिए, अभी तकनीकी समस्या है। {action}",
+    "te-IN": "క్షమించండి, ప్రస్తుతం సాంకేతిక సమస్య ఉంది. {action}",
+}
+OUTAGE_ACTION = {
+    "transfer": {"en-IN": "I'm connecting you to our staff now.", "hi-IN": "मैं आपको अभी स्टाफ़ से जोड़ रही हूँ।",
+                 "te-IN": "మిమ్మల్ని ఇప్పుడే మా సిబ్బందికి కలుపుతున్నాను."},
+    "callback": {"en-IN": "Our staff will call you back shortly.",
+                 "hi-IN": "हमारा स्टाफ़ जल्द ही आपको वापस कॉल करेगा।",
+                 "te-IN": "మా సిబ్బంది త్వరలో మీకు తిరిగి కాల్ చేస్తారు."},
+}
+
+
+def outage_message(language: str, action: str) -> str:
+    lang = language if language in OUTAGE else "en-IN"
+    return OUTAGE[lang].format(action=OUTAGE_ACTION[action][lang])
+
+
 def greeting_segments(biz: Business, language: str | None = None) -> list[tuple[str, str]]:
     """[(language, text), ...] spoken in order, each with that language's voice.
 
@@ -39,10 +66,18 @@ def greeting_segments(biz: Business, language: str | None = None) -> list[tuple[
 
     mode = biz.multilingual_greeting
     if mode == "full":
-        return [(code, full(code)) for code in order if code in GREETINGS]
-    if mode == "short":
-        return [(lang, full(lang))] + [(o, ALSO_SPEAK[o]) for o in order[1:] if o in ALSO_SPEAK]
-    return [(lang, full(lang))]
+        segments = [(code, full(code)) for code in order if code in GREETINGS]
+    elif mode == "short":
+        segments = [(lang, full(lang))] + [(o, ALSO_SPEAK[o]) for o in order[1:] if o in ALSO_SPEAK]
+    else:
+        segments = [(lang, full(lang))]
+    if biz.consent_notice and segments[0][0] in CONSENT:
+        # "...This is Vaani. <consent> How can I help you today?" in the caller's language
+        code, text = segments[0]
+        parts = re.split(r"(?<=[.!?।])\s+", text.strip())
+        segments[0] = (code, " ".join(parts[:-1] + [CONSENT[code], parts[-1]]) if len(parts) > 1
+                       else f"{text} {CONSENT[code]}")
+    return segments
 
 
 def greeting(biz: Business, language: str | None = None) -> str:
@@ -92,6 +127,10 @@ English (and age if known) before checking availability or giving a token. Tell 
 doctor in one sentence, never a diagnosis. If the patient may be a child, ask the age first.
 """ if biz.departments else ""
 
+    pilot_rule = ("The clinic confirms every booking and token itself: when a tool says pending_confirmation, "
+                  "say it is requested and the clinic will confirm by SMS shortly. Don't say it is confirmed.\n"
+                  if biz.pilot_mode else "")
+
     return f"""You are {biz.assistant_name}, the friendly phone receptionist for {biz.name}.
 You are speaking on a live voice call. Your words are converted to speech.
 
@@ -124,7 +163,9 @@ Only the caller's own bookings can be looked up or changed; never reveal other p
 For questions about fees, insurance, lab tests and test preparation, doctors' qualifications,
 vaccinations, clinic policies or facilities, call search_clinic_knowledge first and answer only from
 its results (keep it short; don't read out the source). Don't use it for availability or bookings.
-{opd_rules}{routing_rules}Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
+{opd_rules}{routing_rules}{pilot_rule}If you can't complete what the caller needs (or it's after hours and they want staff), call
+request_callback so the clinic calls them back; tell them staff will call back.
+Use transfer_to_human when the caller asks for a person, is upset, or it is an emergency.
 Medical emergency (chest pain, can't breathe, unconscious, severe bleeding, accident): don't ask
 questions or offer appointments. Call transfer_to_human with emergency=true, and tell the caller to
 call {biz.emergency_number} for an ambulance immediately, saying the number clearly.

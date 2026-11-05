@@ -5,7 +5,8 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
-from ..security import require_admin
+from ..auth import audit
+from ..security import require_admin, require_owner
 
 router = APIRouter(prefix="/api/knowledge", tags=["knowledge"], dependencies=[Depends(require_admin)])
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024
@@ -23,7 +24,7 @@ async def list_documents(request: Request) -> dict:
             "vector_backend": "pgvector" if store.db.pgvector else ("numpy" if store.embedder else "keywords only")}
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_owner)])
 async def upload_document(request: Request, file: UploadFile = File(...)) -> dict:
     name = Path(file.filename or "").name
     if not name:
@@ -35,13 +36,15 @@ async def upload_document(request: Request, file: UploadFile = File(...)) -> dic
         chunks = await _store(request).add_document(name, data, origin="upload")
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from exc
+    await audit(request, "knowledge.upload", name, chunks=chunks)
     return {"source": name, "chunks": chunks}
 
 
-@router.delete("/{source}")
+@router.delete("/{source}", dependencies=[Depends(require_owner)])
 async def delete_document(request: Request, source: str) -> dict:
     if not await _store(request).delete_document(source):
         raise HTTPException(404, "document not found")
+    await audit(request, "knowledge.delete", source)
     return {"deleted": source}
 
 

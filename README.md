@@ -45,10 +45,13 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 🎫 **OPD token queue:** callers take a walk-in **OPD token** by phone ("token 7 for Dr. Rao's evening OPD, please come by 5:45"), ask "which number is going on?" or "how long will I wait?", and cancel tokens. Reception runs the live queue on the **OPD page**: walk-in tokens, **Next patient**, missed turns, "doctor running late" (shifts every estimate) and cancelled sessions. Patients get a reusable patient number on their first token.
 - 🩺 **Right doctor for new patients:** callers describe the problem ("knee pain", "my son has a cough") and VaaniDesk picks the **department and doctor**, applying age rules (children → paediatrics) and gender rules (pregnancy → gynaecology), and flags danger signs for 108. It never diagnoses. Works for a 2-doctor clinic ([`config/business.yaml`](config/business.yaml)) or a multispeciality hospital ([`config/hospital.yaml`](config/hospital.yaml), 8 departments).
 - 💰 **Consultation fees and free follow-ups:** fees per department or doctor; a repeat visit to the same department within N days is a follow-up (free or reduced). It's tracked per patient across tokens and appointments, told to the caller, and shown on the OPD page with **Mark paid**.
+- 🏥 **One server, many clinics:** every call, patient, booking, token, document and staff account belongs to a clinic, enforced in one place in the database layer. Each clinic has its own phone numbers, demo link (`/demo?clinic=<id>`) and calendar feed. Staff log in with their own accounts (**owner** or **receptionist**), every action is in an activity log, and owners edit doctors, hours, departments, fees, FAQs and settings on a **Setup** page instead of YAML. A platform **Clinics** page creates clinics from a clinic or hospital template and shows each clinic's monthly calls, minutes and bookings.
+- 🇮🇳 **Indian phone numbers:** an **Exotel** Voicebot (AgentStream) integration, so clinics can forward their existing number to VaaniDesk on busy or no answer (see [GO_LIVE Step 4](docs/GO_LIVE.md)).
+- 🛟 **Built for real clinics:** **pilot mode** (AI bookings wait for staff to confirm), a **Needs attention** list on the dashboard (AI outages, calls that ended mid-booking, callback requests, with SMS alerts to staff), a spoken apology and handover when an AI provider fails, a database rule against double bookings, an "I'm an AI assistant" notice, automatic transcript deletion after N days, and backup/restore scripts with a restore drill. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 💬 **SMS / WhatsApp confirmations** through Twilio
 - 📊 **Owner dashboard:** calls, transcripts, AI call summaries, booking rate, per-turn latency, language mix
-- 🧪 **Tested:** 129 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 149 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
 - 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
 
@@ -141,7 +144,7 @@ Everything about the business lives in [`config/business.yaml`](config/business.
 ## Tests and evals
 
 ```bash
-pytest -q                       # 129 tests, offline, about 30 s
+pytest -q                       # 149 tests, offline, about 40 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 ```
@@ -262,6 +265,11 @@ app/
   transports/             Twilio media stream and browser WebSocket
   tools/opd.py            OPD token queue: tokens, patient numbers, live position, waiting time and fees
   tools/routing.py        problem -> department and doctor (age/gender rules, emergency flags)
+scripts/backup.py         database export / restore / restore drill (SQLite and Postgres)
+  auth.py                 staff logins, roles, signed session cookie, clinic selection, audit log
+  state.py                one Tenant (profile, calendar, tools, knowledge) per clinic
+  api/accounts.py         login, staff accounts, Setup page, platform clinic admin and usage
+  transports/exotel.py    Exotel Voicebot (Indian numbers)
   api/dashboard.py        owner dashboard API
   api/opd.py              OPD reception screen API (walk-ins, next patient, delays)
 static/                   browser demo (AudioWorklet mic capture) and dashboard

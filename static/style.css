@@ -171,3 +171,37 @@ button.mini { padding: 3px 9px; font-size: 12px; border-radius: 8px; }
 .badge.muted-badge { background: var(--bg); color: var(--muted); }
 .stack-form { display: flex; flex-direction: column; gap: 10px; min-width: min(420px, 80vw); }
 .ok-text { color: var(--ok) !important; }
+
+/* dashboard: needs attention */
+.attention { margin-bottom: 18px; border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
+.attention h3 { margin: 12px 0 6px; font-weight: 600; }
+.nowrap { white-space: nowrap; }
+
+/* login + header user box */
+.login-wrap { max-width: 420px; margin-top: 8vh; }
+.login { display: flex; flex-direction: column; gap: 12px; }
+header.top nav { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 0; }
+header.top nav select { margin-left: 16px; padding: 4px 8px; font-size: 13px; }
+header.top nav .who { margin-left: 16px; }
+
+/* setup page */
+.setup section.panel { margin-bottom: 16px; }
+.setup-bar { position: sticky; top: 0; z-index: 2; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  background: var(--bg); padding: 10px 0; margin-bottom: 6px; }
+.setup-bar p { flex-basis: 100%; margin: 0; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; }
+.grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); gap: 10px; align-items: end; }
+.setup textarea { font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); width: 100%; box-sizing: border-box; }
+.setup .field input, .setup .field select { width: 100%; box-sizing: border-box; }
+table.edit input, table.edit select { width: 100%; box-sizing: border-box; min-width: 80px; }
+fieldset.dept { margin-bottom: 12px; }
+.faq-row { display: grid; grid-template-columns: 1fr 2fr auto; gap: 8px; margin-bottom: 8px; }
+@media (max-width: 640px) { .faq-row { grid-template-columns: 1fr; } }
+.row-form { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.row-form input { flex: 1 1 160px; min-width: 0; }
+.setup button + button { margin-left: 4px; }
+section.panel > button { margin-top: 10px; }
+.bad-input { border-color: var(--bad) !important; }
+.setup .check input, .setup .field .check input { width: auto; }
+.setup .field > div .check { display: inline-flex; margin-right: 14px; }
+fieldset.dept > button.mini { justify-self: start; width: auto; }

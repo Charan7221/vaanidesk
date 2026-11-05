@@ -190,7 +190,6 @@
     catch (_) { $("feedUrl").select(); }
     setTimeout(() => ($("copyFeed").textContent = "Copy link"), 1500);
   };
-  fetch("/api/public-config").then(r => r.json()).then(c => ($("bizName").textContent = c.business));
   load().catch(e => ($("grid").innerHTML = `<p class="muted">Could not load calendar: ${esc(e.message)}</p>`));
   setInterval(() => { if (!dlg.open) load(); }, 30000);
 })();

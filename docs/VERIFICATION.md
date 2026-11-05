@@ -15,7 +15,7 @@ Keep that window open; errors appear there. Use **headphones** for voice tests, 
 
 ### 1.1 Automated tests
 - [x] In a **second** Command Prompt (activate `.venv` first): `pip install -r requirements-dev.txt` then `pytest -q`
-  - **Expected:** `129 passed`
+  - **Expected:** `149 passed`
 - [x] `python -m scripts.check_setup`
   - **Expected:** `[PASS]` for LLM, Sarvam TTS (stream), Sarvam TTS (rest) and STT. Google Calendar shows `[SKIP]`.
 - Notes:
@@ -71,6 +71,15 @@ Open http://localhost:8000/opd (dashboard login) in one tab and the demo in anot
 - [ ] Demo: *"I have high sugar, I'm 50"* → take a token. **Expected:** Dr. Rao, fee ₹400; the OPD page shows "₹400 due" → **Mark paid** → "₹400 paid".
 - [ ] Next day (or a booking on another day within 7 days), same name and phone with Dr. Rao. **Expected:** "free follow-up".
 - [ ] Hospital mode: set `BUSINESS_CONFIG_PATH=config/hospital.yaml` in `.env`, restart, and ask about knee pain, irregular periods and blurred vision. **Expected:** Orthopaedics, Gynaecology and Ophthalmology. Set it back afterwards.
+- Notes:
+
+### 1.4d Many clinics and logins
+- [ ] Open http://localhost:8000/dashboard. **Expected:** the login page. Log in with `ADMIN_USER` / `ADMIN_PASSWORD`.
+- [ ] **Clinics** → add `test-hospital` (hospital template, your email as owner). **Expected:** it appears with 1 staff account.
+- [ ] Log out, then log in as that owner. **Expected:** only that clinic's (empty) dashboard; **Setup** shows 9 hospital doctors.
+- [ ] In Setup, rename a doctor and save. Open `/demo?clinic=test-hospital` and ask *"I have knee pain, which doctor?"* **Expected:** the orthopaedic doctor.
+- [ ] Setup → Staff: add a receptionist, log in as them. **Expected:** no Setup link; `/setup` is refused.
+- [ ] Setup → Activity log shows the logins and changes.
 - Notes:
 
 ### 1.5 Measure quality (for README and resume)

@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Login</title>
+  <link rel="stylesheet" href="/static/style.css?v=9" />
+</head>
+<body>
+<header class="top"><div class="brand"><span class="dot"></span> VaaniDesk</div><nav><a href="/demo">Live demo</a></nav></header>
+<main class="login-wrap">
+  <form class="panel login" id="form">
+    <h2>Staff login</h2>
+    <label class="field">Email <input name="email" type="text" autocomplete="username" required autofocus /></label>
+    <label class="field">Password <input name="password" type="password" autocomplete="current-password" required /></label>
+    <button class="primary" type="submit">Log in</button>
+    <p class="err small" id="err"></p>
+    <p class="small muted">Forgot your password? Ask your clinic owner to reset it from Setup → Staff.</p>
+  </form>
+</main>
+<script>
+  const form = document.getElementById("form");
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const f = new FormData(form);
+    const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: f.get("email"), password: f.get("password") }) });
+    if (!r.ok) { document.getElementById("err").textContent = (await r.json().catch(() => ({}))).detail || "Login failed"; return; }
+    const next = new URLSearchParams(location.search).get("next");
+    location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
+  };
+</script>
+</body>
+</html>

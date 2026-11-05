@@ -52,7 +52,5 @@
           ${h.similarity === null ? "" : `<span class="badge">similarity ${h.similarity}</span>`}</div>
         <div class="small muted">${esc(h.text)}</div></div>`).join("") || `<p class="muted">Nothing found.</p>`;
   };
-
-  fetch("/api/public-config").then(r => r.json()).then(c => ($("bizName").textContent = c.business));
   load().catch(e => ($("docs").innerHTML = `<tr><td colspan="5">${esc(e.message)}</td></tr>`));
 })();

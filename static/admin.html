@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>VaaniDesk Clinics</title>
+  <link rel="stylesheet" href="/static/style.css?v=9" />
+</head>
+<body>
+<header class="top">
+  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge" id="bizName">Clinics</span></div>
+  <nav><a href="/dashboard">Dashboard</a><a href="/opd">OPD</a><a href="/calendar">Calendar</a><a href="/knowledge">Knowledge</a><a href="/demo">Live demo</a></nav>
+</header>
+<main class="setup">
+  <section class="panel">
+    <h2>Clinics on this server</h2>
+    <p class="small muted">Usage is for the current month: what each clinic costs you in calls and minutes.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Clinic</th><th>Phone numbers (calls to these go to this clinic)</th><th>Calls</th><th>Minutes</th><th>Bookings</th><th>Tokens</th><th>Staff</th><th></th></tr></thead>
+      <tbody id="clinics"></tbody>
+    </table></div>
+  </section>
+  <section class="panel">
+    <h2>Add a clinic</h2>
+    <form id="newClinic" class="grid2">
+      <label class="field">Clinic id (used in links)<input name="id" pattern="[a-z0-9][a-z0-9\-]{1,30}" placeholder="e.g. sai-clinic" required /></label>
+      <label class="field">Name<input name="name" required /></label>
+      <label class="field">Start from<select name="template"><option value="clinic">Small clinic (2 doctors)</option><option value="hospital">Multispeciality hospital (8 departments)</option></select></label>
+      <label class="field">Phone numbers (comma separated, optional)<input name="phone_numbers" placeholder="+91…" /></label>
+      <label class="field">Owner's email<input name="owner_email" required /></label>
+      <label class="field">Owner's temporary password<input name="owner_password" type="password" required /></label>
+      <div><button class="primary">Create clinic</button> <span class="err small" id="err"></span></div>
+    </form>
+    <p class="small muted">The owner logs in, opens <b>Setup</b> and replaces the template's doctors, hours, fees and FAQs with the clinic's own. New clinics start in pilot mode if the template has it on.</p>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const api = async (path, opts = {}) => {
+    const r = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : `HTTP ${r.status}`);
+    return d;
+  };
+  async function load() {
+    const rows = await api("/api/admin/clinics");
+    $("clinics").innerHTML = rows.map(c => `<tr>
+      <td><b>${esc(c.name)}</b><div class="small muted">${esc(c.id)}${c.active ? "" : ' · <span class="badge bad">inactive</span>'}</div></td>
+      <td><input data-numbers="${esc(c.id)}" value="${esc(c.phone_numbers.join(", "))}" placeholder="+91…" /></td>
+      <td>${c.this_month.calls}</td><td>${c.this_month.minutes}</td><td>${c.this_month.appointments}</td><td>${c.this_month.opd_tokens}</td><td>${c.staff}</td>
+      <td class="nowrap"><button class="mini primary" data-open="${esc(c.id)}">Open</button>
+        <a class="small" href="/demo?clinic=${encodeURIComponent(c.id)}" target="_blank">Demo</a>
+        ${c.id === "default" ? "" : `<button class="mini" data-active="${esc(c.id)}" data-to="${c.active ? 0 : 1}">${c.active ? "Deactivate" : "Activate"}</button>`}</td></tr>`).join("");
+    document.querySelectorAll("[data-numbers]").forEach(i => i.onchange = async () => {
+      try { await api(`/api/admin/clinics/${i.dataset.numbers}`, { method: "POST", body: JSON.stringify({ phone_numbers: i.value.split(",").map(s => s.trim()).filter(Boolean) }) }); i.classList.remove("bad-input"); }
+      catch (ex) { alert(ex.message); i.classList.add("bad-input"); }
+    });
+    document.querySelectorAll("[data-open]").forEach(b => b.onclick = async () => { await api(`/api/admin/switch/${b.dataset.open}`, { method: "POST" }); location.href = "/dashboard"; });
+    document.querySelectorAll("[data-active]").forEach(b => b.onclick = async () => {
+      if (b.dataset.to === "0" && !confirm("Deactivate this clinic? Its staff can't log in and calls go to the first clinic.")) return;
+      await api(`/api/admin/clinics/${b.dataset.active}`, { method: "POST", body: JSON.stringify({ active: b.dataset.to === "1" }) }); load();
+    });
+  }
+  $("newClinic").onsubmit = async (e) => {
+    e.preventDefault();
+    const f = Object.fromEntries(new FormData(e.target));
+    f.phone_numbers = (f.phone_numbers || "").split(",").map(s => s.trim()).filter(Boolean);
+    try { await api("/api/admin/clinics", { method: "POST", body: JSON.stringify(f) }); e.target.reset(); $("err").textContent = ""; load(); }
+    catch (ex) { $("err").textContent = ex.message; }
+  };
+  load().catch(ex => ($("clinics").innerHTML = `<tr><td colspan="8">${esc(ex.message)}</td></tr>`));
+})();
+</script>
+<script src="/static/nav.js?v=1"></script>
+</body>
+</html>

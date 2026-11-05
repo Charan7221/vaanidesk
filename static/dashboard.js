@@ -58,6 +58,40 @@
     });
   }
 
+  const KIND = { outage: "AI failed mid-call", abandoned: "Call ended before booking", callback: "Asked for a call back",
+                 transfer_failed: "Transfer failed", rejected: "Booking rejected" };
+  async function loadAttention() {
+    const a = await api("/api/attention");
+    const n = a.pending.length + a.follow_ups.length;
+    $("attention").hidden = n === 0;
+    $("attnCount").textContent = n || "";
+    $("pendingWrap").hidden = !a.pending.length;
+    $("followWrap").hidden = !a.follow_ups.length;
+    $("pending").innerHTML = a.pending.map(p => `
+      <tr><td>${esc(p.patient_name)}<div class="small muted">${esc(p.phone || "")}</div></td>
+        <td>${esc(p.doctor)}</td><td>${esc(p.when)}${p.kind === "token" ? ` <span class="badge">OPD</span>` : ""}</td>
+        <td class="nowrap"><button class="primary" data-decide="${esc(p.kind)}/${esc(p.id)}" data-ok="1">Confirm</button>
+          <button data-decide="${esc(p.kind)}/${esc(p.id)}" data-ok="0">Reject</button></td></tr>`).join("");
+    $("follow").innerHTML = a.follow_ups.map(f => `
+      <tr><td class="small">${esc(f.at)}</td>
+        <td>${esc(f.patient_name || "–")}<div class="small muted">${esc(f.phone || "number unknown")}</div></td>
+        <td><b>${esc(KIND[f.kind] || f.kind)}</b><div class="small muted">${esc(f.reason)}</div>
+          ${f.call_id ? `<a href="#" class="small" data-call="${esc(f.call_id)}">Open call</a>` : ""}</td>
+        <td><button data-done="${esc(f.id)}">Done</button></td></tr>`).join("");
+    document.querySelectorAll("[data-decide]").forEach(b => b.onclick = async () => {
+      const ok = b.dataset.ok === "1";
+      if (!ok && !confirm("Reject and cancel this booking? The patient gets an SMS asking them to call.")) return;
+      await api(`/api/pending/${b.dataset.decide}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ approve: ok }) });
+      refresh();
+    });
+    document.querySelectorAll("[data-done]").forEach(b => b.onclick = async () => {
+      const note = prompt("What did you do? (optional)") ?? null;
+      await api(`/api/follow-ups/${b.dataset.done}/done`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ note }) });
+      refresh();
+    });
+    document.querySelectorAll("#follow [data-call]").forEach(l => l.onclick = (e) => { e.preventDefault(); openCall(l.dataset.call); });
+  }
+
   async function openCall(id) {
     const c = await api(`/api/calls/${id}`);
     $("dlgTitle").textContent = `${c.caller || c.channel} · ${new Date(c.started_at).toLocaleString()} · ${c.duration_s ?? "–"}s`;
@@ -78,9 +112,8 @@
   $("dlgClose").onclick = () => $("callDialog").close();
 
   async function refresh() {
-    try { await Promise.all([loadStats(), loadCalls(), loadAppts()]); } catch (e) { console.error(e); }
+    try { await Promise.all([loadAttention(), loadStats(), loadCalls(), loadAppts()]); } catch (e) { console.error(e); }
   }
-  fetch("/api/public-config").then(r => r.json()).then(c => $("bizName").textContent = c.business);
   $("range").onchange = refresh;
   refresh();
   setInterval(refresh, 15000);

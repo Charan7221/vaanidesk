@@ -83,6 +83,14 @@ faq:
   - q: "Do you have a lab?"
     a: "Basic blood tests are done at the clinic; samples are collected from 8 AM."
 
+# ---- Pilot / production safety
+# pilot_mode: AI bookings and tokens stay "pending" until staff press Confirm on the dashboard
+# (start every new clinic in pilot mode; switch off once staff trust the bookings).
+pilot_mode: false
+consent_notice: true             # the greeting says it's an AI assistant and the call is transcribed
+transcript_retention_days: 90    # delete call transcripts and summaries after this many days (0 = keep)
+staff_alert_phone: ""            # SMS/WhatsApp for new follow-ups (empty = handoff_number)
+
 # Where to transfer the call when the caller asks for a human or it's an emergency.
 handoff_number: "+919000000000"
 # Ambulance number callers are told to dial first in a medical emergency.

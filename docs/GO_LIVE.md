@@ -99,3 +99,23 @@ git push -u origin main
 **Testing locally before deploying:** run `ngrok http 8000`, set `PUBLIC_BASE_URL=https://<id>.ngrok-free.app` in `.env`, restart uvicorn, and use `https://<id>.ngrok-free.app/twilio/voice` as the webhook.
 
 **SMS confirmations** need the caller's number in international format (`+91...`). Phone callers' numbers come from Twilio automatically.
+
+---
+
+## Step 4: Indian phone numbers with Exotel (recommended for India)
+
+Twilio rarely sells Indian numbers. Exotel gives you an Indian virtual number, and the clinic can **forward its existing number** to it when busy or unanswered, so patients keep dialling the number they know.
+
+1. Create an Exotel account and buy (or get assigned) a virtual number. Complete their KYC.
+2. In **App Bazaar**, create a flow:
+   - **Voicebot** applet, URL `wss://vaanidesk:<EXOTEL_STREAM_SECRET>@<your-app>.onrender.com/exotel/stream?sample-rate=16000`
+     (`EXOTEL_STREAM_SECRET` is in Render → Environment).
+   - **Passthru** applet, URL `https://<your-app>.onrender.com/exotel/after-bot`. It answers **200** when the AI handed the call to staff, and **302** otherwise.
+   - On the 200 branch: **Connect** applet to the clinic's reception number. On the 302 branch: **Hangup**.
+3. Assign the flow to the number.
+4. In VaaniDesk, open **/admin** (platform admin) and put that number in the clinic's **Phone numbers**. Calls to it now reach that clinic's receptionist.
+5. Ask the clinic to set **call forwarding on busy / no answer** from their number to the Exotel number. Their telecom operator or phone settings can do this.
+
+> Check these against Exotel's current documentation and your account (applet names, the Passthru 200/302 branching, sample rates). Exotel's AgentStream docs: developer.exotel.com/docs/agentstream.
+
+**SMS and WhatsApp in India:** sending SMS to Indian numbers requires DLT registration (sender ID and approved templates) with your SMS provider. Until you have it, use **WhatsApp** for confirmations (`TWILIO_WHATSAPP_FROM`, or a WhatsApp Business provider). VaaniDesk sends WhatsApp first and falls back to SMS.

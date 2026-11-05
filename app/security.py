@@ -1,13 +1,17 @@
-"""Security helpers: Twilio webhook signature validation and dashboard Basic auth."""
+"""Security helpers: Twilio webhook signature validation; dashboard auth lives in app.auth."""
 from __future__ import annotations
 
 import base64
 import hashlib
 import hmac
-import secrets
 
-from fastapi import Depends, HTTPException, Request, status
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
+from .auth import require_owner, require_superadmin, require_user
+
+# Every dashboard page and API needs a logged-in staff member (see app/auth.py).
+require_admin = require_user
+
+__all__ = ["is_valid_twilio_request", "require_admin", "require_owner", "require_superadmin", "require_user",
+           "twilio_signature"]
 
 
 def twilio_signature(auth_token: str, url: str, params: dict[str, str]) -> str:
@@ -21,16 +25,3 @@ def is_valid_twilio_request(auth_token: str, url: str, params: dict[str, str], s
     if not signature:
         return False
     return hmac.compare_digest(twilio_signature(auth_token, url, params), signature)
-
-
-_basic = HTTPBasic()
-
-
-def require_admin(request: Request, creds: HTTPBasicCredentials = Depends(_basic)) -> str:
-    settings = request.app.state.container.settings
-    ok_user = secrets.compare_digest(creds.username.encode(), settings.admin_user.encode())
-    ok_pass = secrets.compare_digest(creds.password.encode(), settings.admin_password.encode())
-    if not (ok_user and ok_pass):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials",
-                            headers={"WWW-Authenticate": "Basic"})
-    return creds.username

@@ -20,3 +20,4 @@ evals/retrieval_results.json
 *service-account*.json
 *.pem
 *.key
+backups/

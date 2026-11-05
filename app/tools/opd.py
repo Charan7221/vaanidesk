@@ -96,7 +96,9 @@ class OpdDesk:
                     return found
         for _ in range(5):
             async with self.db.session() as s:
-                top = (await s.execute(select(func.max(Patient.number)))).scalar_one_or_none()
+                # patient numbers are unique across all clinics (one sequence), so look at every clinic
+                top = (await s.execute(select(func.max(Patient.number)).execution_options(all_clinics=True))
+                       ).scalar_one_or_none()
                 patient = Patient(number=(top or 1000) + 1, name=name, phone=phone, age=age)
                 s.add(patient)
                 try:
@@ -165,7 +167,7 @@ class OpdDesk:
 
     async def issue(self, *, provider_id: str, day: date, patient_name: str, phone: str | None,
                     session_hint: str | None = None, age: int | None = None, reason: str | None = None,
-                    source: str = "call", call_id: str | None = None,
+                    source: str = "call", call_id: str | None = None, confirmed: bool | None = None,
                     now: datetime | None = None) -> tuple[OpdToken, bool]:
         """Issue the next token in a doctor's session. Returns (token, created); created is False when the
         same patient already holds a token in that session. Raises OpdError when no token can be given."""
@@ -218,7 +220,7 @@ class OpdDesk:
                 token = OpdToken(day=day.isoformat(), session=s.key, provider_id=provider.id, number=(top or 0) + 1,
                                  patient_id=patient.id, patient_name=patient_name, phone=phone, age=age,
                                  reason=reason, source=source, call_id=call_id, fee_type=quote["type"],
-                                 fee_amount=quote["amount"], paid=False)
+                                 fee_amount=quote["amount"], paid=False, confirmed=confirmed)
                 db.add(token)
                 try:
                     await db.commit()
@@ -329,6 +331,16 @@ class OpdDesk:
                 token.done_at = utcnow()
             token.status = status
             await s.commit()
+            return token
+
+    async def set_confirmed(self, token_id: str, confirmed: bool) -> OpdToken | None:
+        async with self.db.session() as s:
+            token = await s.get(OpdToken, token_id)
+            if token:
+                token.confirmed = confirmed
+                if not confirmed:
+                    token.status = "cancelled"
+                await s.commit()
             return token
 
     async def set_paid(self, token_id: str, paid: bool) -> OpdToken | None:

@@ -6,6 +6,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from ..auth import audit
 from ..db import as_utc
 from ..phone import validate_phone
 from ..security import require_admin
@@ -83,6 +84,7 @@ async def walk_in(body: TokenIn, request: Request) -> dict:
             phone=phone, session_hint=body.session, age=body.age, reason=body.reason, source="staff")
     except OpdError as exc:
         raise HTTPException(409, exc.reason) from exc
+    await audit(request, "opd.walk_in", f"token {token.number}", doctor=p.id, patient=token.patient_name)
     return {"id": token.id, "number": token.number, "created": created, "fee_type": token.fee_type,
             "fee_amount": token.fee_amount}
 
@@ -99,7 +101,9 @@ async def call_next(body: QueueIn, request: Request) -> dict:
     p = _provider(state, body.provider_id)
     day = body.day or state.business.now().date()
     _session(state, day, body.session)
-    return await state.tools.opd.call_next(day, p.id, body.session)
+    result = await state.tools.opd.call_next(day, p.id, body.session)
+    await audit(request, "opd.next", p.id, session=body.session, now_serving=result["now_serving"])
+    return result
 
 
 class StatusIn(BaseModel):
@@ -113,6 +117,7 @@ async def token_status(token_id: str, body: StatusIn, request: Request) -> dict:
     token = await _state(request).tools.opd.set_token_status(token_id, body.status)
     if not token:
         raise HTTPException(404, "token not found")
+    await audit(request, "opd.token_status", f"token {token.number}", status=token.status)
     return {"id": token.id, "number": token.number, "status": token.status}
 
 
@@ -125,6 +130,7 @@ async def mark_paid(token_id: str, body: PaidIn, request: Request) -> dict:
     token = await _state(request).tools.opd.set_paid(token_id, body.paid)
     if not token:
         raise HTTPException(404, "token not found")
+    await audit(request, "opd.paid" if body.paid else "opd.unpaid", f"token {token.number}", amount=token.fee_amount)
     return {"id": token.id, "paid": bool(token.paid)}
 
 
@@ -147,4 +153,6 @@ async def session_status(body: SessionStatusIn, request: Request) -> dict:
         _session(state, day, key)
         await state.tools.opd.set_session_status(day, p.id, key, delay_minutes=body.delay_minutes,
                                                  cancelled=body.cancelled, note=body.note)
+    await audit(request, "opd.session_status", p.id, sessions=keys,
+                **body.model_dump(exclude_none=True, exclude={"provider_id", "day", "session"}))
     return {"updated": keys}

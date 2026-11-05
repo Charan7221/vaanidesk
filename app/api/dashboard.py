@@ -4,10 +4,12 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from ..db import Appointment, Call, as_utc
+from ..auth import audit
+from ..db import Appointment, Call, OpdToken, as_utc
 from ..security import require_admin
 
 router = APIRouter(prefix="/api", tags=["dashboard"], dependencies=[Depends(require_admin)])
@@ -133,4 +135,76 @@ async def cancel(appointment_id: str, request: Request) -> dict:
     appt = await request.app.state.container.calendar.cancel(appointment_id)
     if not appt:
         raise HTTPException(404, "appointment not found")
+    await audit(request, "appointment.cancel", appointment_id, patient=appt.patient_name)
     return {"cancelled": True}
+
+
+# ------------------------------------------------------------------ needs attention: follow-ups + pilot confirmations
+@router.get("/attention")
+async def attention(request: Request) -> dict:
+    """What staff must act on: open follow-ups and (pilot mode) AI bookings/tokens awaiting confirmation."""
+    state = request.app.state.container
+    biz, tz = state.business, state.business.tz
+    follow = [{"id": f.id, "kind": f.kind, "phone": f.phone, "patient_name": f.patient_name, "reason": f.reason,
+               "call_id": f.call_id, "at": as_utc(f.created_at).astimezone(tz).strftime("%d %b, %I:%M %p")}
+              for f in await state.db.follow_ups("open")]
+    async with state.db.session() as s:
+        appts = (await s.execute(select(Appointment).where(Appointment.confirmed.is_(False),
+                                                           Appointment.status == "booked")
+                                 .order_by(Appointment.start))).scalars()
+        tokens = (await s.execute(select(OpdToken).where(OpdToken.confirmed.is_(False),
+                                                         OpdToken.status.in_(("waiting", "in_consultation")))
+                                  .order_by(OpdToken.day, OpdToken.number))).scalars()
+        pending = [{"kind": "appointment", "id": a.id, "patient_name": a.patient_name, "phone": a.phone,
+                    "doctor": (biz.provider(a.provider_id).name if biz.provider(a.provider_id) else a.provider_id),
+                    "when": as_utc(a.start).astimezone(tz).strftime("%a %d %b, %I:%M %p"), "call_id": a.call_id}
+                   for a in appts]
+        pending += [{"kind": "token", "id": t.id, "patient_name": t.patient_name, "phone": t.phone,
+                     "doctor": (biz.provider(t.provider_id).name if biz.provider(t.provider_id) else t.provider_id),
+                     "when": f"Token {t.number}, {t.day} {t.session}", "call_id": t.call_id} for t in tokens]
+    return {"pilot_mode": biz.pilot_mode, "follow_ups": follow, "pending": pending}
+
+
+class ResolveIn(BaseModel):
+    note: str | None = None
+
+
+@router.post("/follow-ups/{item_id}/done")
+async def follow_up_done(item_id: str, body: ResolveIn, request: Request) -> dict:
+    if not await request.app.state.container.db.resolve_follow_up(item_id, body.note):
+        raise HTTPException(404, "follow-up not found")
+    await audit(request, "follow_up.done", item_id, note=body.note)
+    return {"done": True}
+
+
+class DecisionIn(BaseModel):
+    approve: bool
+
+
+@router.post("/pending/{kind}/{item_id}")
+async def decide(kind: str, item_id: str, body: DecisionIn, request: Request) -> dict:
+    """Pilot mode: staff approve (patient gets the confirmation SMS) or reject (cancelled, patient told to call)."""
+    state = request.app.state.container
+    biz = state.business
+    if kind == "appointment":
+        appt = await state.db.get_appointment(item_id)
+        if not appt or appt.status != "booked":
+            raise HTTPException(404, "appointment not found")
+        await state.db.update_appointment(item_id, confirmed=body.approve)
+        if not body.approve:
+            await state.calendar.cancel(item_id)
+        name, phone = appt.patient_name, appt.phone
+        what = f"appointment on {as_utc(appt.start).astimezone(biz.tz).strftime('%a %d %b, %I:%M %p')}"
+    elif kind == "token":
+        token = await state.tools.opd.set_confirmed(item_id, body.approve)
+        if not token:
+            raise HTTPException(404, "token not found")
+        name, phone, what = token.patient_name, token.phone, f"OPD token {token.number} on {token.day}"
+    else:
+        raise HTTPException(422, "kind must be appointment or token")
+    if phone:
+        msg = (f"{biz.name}: your {what} for {name} is confirmed." if body.approve else
+               f"{biz.name}: sorry, we couldn't confirm your {what} for {name}. Please call us on {biz.phone}.")
+        await state.twilio.send_message(phone, msg)
+    await audit(request, "pilot.confirm" if body.approve else "pilot.reject", f"{kind}:{item_id}", patient=name)
+    return {"approved": body.approve}

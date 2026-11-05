@@ -92,6 +92,10 @@ faq:
   - q: "Which payment methods do you accept?"
     a: "Cash, UPI and all major cards."
 
+pilot_mode: true
+consent_notice: true
+transcript_retention_days: 90
+
 handoff_number: "+919000000001"
 emergency_number: "108"
 

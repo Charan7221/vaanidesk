@@ -16,6 +16,7 @@ import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..db import DEFAULT_CLINIC, current_clinic
 from ..phone import validate_phone
 from .base import Transport
 
@@ -94,6 +95,11 @@ async def browser_call(ws: WebSocket) -> None:
                 if len(state.active_sessions) >= s.max_concurrent_calls:
                     await transport.send_event({"type": "error", "message": "All lines busy, try again shortly"})
                     break
+                clinic = str(data.get("clinic") or DEFAULT_CLINIC)
+                if clinic not in state.tenants:
+                    await transport.send_event({"type": "error", "message": "Unknown clinic"})
+                    break
+                current_clinic.set(clinic)  # this call (and every task it starts) belongs to that clinic
                 lang = data.get("language") if data.get("language") in state.business.languages else None
                 session = await state.new_session(transport, channel="browser", language=lang,
                                                   caller=validate_phone(data.get("phone"))[0])
@@ -112,5 +118,13 @@ async def browser_call(ws: WebSocket) -> None:
     finally:
         transport.closed = True
         if session:
-            await session.close()
-            state.release(session)
+            # Finish the call record even if this handler is being cancelled (client vanished): a database
+            # write interrupted half-way leaves a broken connection behind.
+            await asyncio.shield(_finish(state, session))
+
+
+async def _finish(state, session) -> None:
+    try:
+        await session.close()
+    finally:
+        state.release(session)

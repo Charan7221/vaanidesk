@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
-from ..db import Appointment, as_utc
+from ..auth import audit
+from ..db import DEFAULT_CLINIC, Appointment, as_utc, current_clinic
 from ..phone import validate_phone
 from ..security import require_admin
 from ..tools.calendar import SlotUnavailable
@@ -25,11 +26,12 @@ admin = [Depends(require_admin)]
 
 
 # ------------------------------------------------------------------ helpers
-def feed_token(settings) -> str:
-    """Stable secret for the calendar feed URL (override with CALENDAR_FEED_TOKEN)."""
-    if settings.calendar_feed_token:
+def feed_token(settings, clinic_id: str = DEFAULT_CLINIC) -> str:
+    """Stable secret for a clinic's calendar feed URL (override the first clinic's with CALENDAR_FEED_TOKEN)."""
+    if settings.calendar_feed_token and clinic_id == DEFAULT_CLINIC:
         return settings.calendar_feed_token
-    return hmac.new(settings.admin_password.encode(), b"vaanidesk-calendar-feed", hashlib.sha256).hexdigest()[:32]
+    msg = b"vaanidesk-calendar-feed" + (b"" if clinic_id == DEFAULT_CLINIC else b":" + clinic_id.encode())
+    return hmac.new(settings.admin_password.encode(), msg, hashlib.sha256).hexdigest()[:32]
 
 
 def _local(dt: datetime, tz) -> str:
@@ -110,6 +112,8 @@ async def add_block(body: BlockIn, request: Request) -> dict:
     if body.provider_id and not state.business.provider(body.provider_id):
         raise HTTPException(422, "unknown provider")
     block = await state.db.add_block(s, e, body.provider_id or None, (body.reason or "").strip() or None)
+    await audit(request, "calendar.block", body.provider_id or "whole clinic", date=str(body.date), start=body.start,
+                end=body.end, reason=body.reason)
     return {"id": block.id}
 
 
@@ -117,6 +121,7 @@ async def add_block(body: BlockIn, request: Request) -> dict:
 async def delete_block(block_id: str, request: Request) -> dict:
     if not await request.app.state.container.db.delete_block(block_id):
         raise HTTPException(404, "block not found")
+    await audit(request, "calendar.unblock", block_id)
     return {"deleted": True}
 
 
@@ -148,6 +153,8 @@ async def staff_booking(body: BookingIn, request: Request) -> dict:
     except SlotUnavailable as exc:
         raise HTTPException(409, "That slot is not available") from exc
     fee = await state.tools._record_fee(appt, body.patient_name.strip(), phone, appt.provider_id, body.date)
+    await audit(request, "appointment.staff_book", appt.id, patient=body.patient_name, date=str(body.date),
+                time=body.time)
     return {"id": appt.id, "fee": fee["label"]}
 
 
@@ -155,7 +162,7 @@ async def staff_booking(body: BookingIn, request: Request) -> dict:
 @router.get("/api/calendar-feed", dependencies=admin)
 async def feed_info(request: Request) -> dict:
     s = request.app.state.container.settings
-    url = f"{s.public_base_url.rstrip('/')}/calendar/{feed_token(s)}.ics"
+    url = f"{s.public_base_url.rstrip('/')}/calendar/{feed_token(s, request.app.state.container.clinic_id)}.ics"
     return {"url": url, "public": not any(h in url for h in ("localhost", "127.0.0.1"))}
 
 
@@ -186,8 +193,10 @@ def _ics_dt(dt: datetime) -> str:
 @router.get("/calendar/{token}.ics", include_in_schema=False)
 async def ics_feed(token: str, request: Request) -> Response:
     state = request.app.state.container
-    if not hmac.compare_digest(token, feed_token(state.settings)):
+    clinic = next((cid for cid in state.tenants if hmac.compare_digest(token, feed_token(state.settings, cid))), None)
+    if clinic is None:
         raise HTTPException(404, "not found")
+    current_clinic.set(clinic)
     biz = state.business
     now = datetime.now(UTC)
     async with state.db.session() as s:
