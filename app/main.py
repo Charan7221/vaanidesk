@@ -142,6 +142,10 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     async def login_page():
         return FileResponse(STATIC_DIR / "login.html", headers=NO_CACHE)
 
+    @app.get("/signup", include_in_schema=False)
+    async def signup_page():
+        return FileResponse(STATIC_DIR / "signup.html", headers=NO_CACHE)
+
     @app.get("/setup", include_in_schema=False, dependencies=[Depends(require_owner)])
     async def setup_page():
         return FileResponse(STATIC_DIR / "setup.html", headers=NO_CACHE)
@@ -170,6 +174,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         biz = c.tenant(clinic or DEFAULT_CLINIC).business
         return {"business": biz.name, "assistant": biz.assistant_name, "clinic": clinic or DEFAULT_CLINIC,
                 "languages": biz.languages, "access_code_required": bool(c.settings.demo_access_code),
+                "emergency_number": biz.emergency_number,
                 "phone_number": c.settings.twilio_phone_number or None}
 
     return app

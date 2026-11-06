@@ -161,6 +161,14 @@
 
   api("/api/setup").then(d => {
     cfg = d.config; render();
+    if (new URLSearchParams(location.search).get("welcome")) {
+      document.querySelector(".setup-bar").insertAdjacentHTML("beforebegin", `<section class="panel welcome">
+        <h2>Welcome to VaaniDesk 👋</h2>
+        <p>Your clinic is ready with sample data. Three steps to go live:</p>
+        <ol><li>Replace the sample <b>doctors, hours and fees</b> below with yours, then press <b>Save changes</b>.</li>
+        <li>Upload your fee list, insurance and test-preparation notes on <a href="/knowledge">Knowledge</a>.</li>
+        <li>Try it on <a href="/demo?clinic=${encodeURIComponent(d.clinic_id)}" target="_blank">your demo link</a>, then add your receptionists under <b>Staff accounts</b>.</li></ol></section>`);
+    }
     if (d.config_file) { $("fileNote").hidden = false; $("fileName").textContent = d.config_file.split(/[\\/]/).pop(); }
   }).catch(ex => { document.querySelector("main").innerHTML = `<p class="panel">${esc(ex.message)}</p>`; });
   loadStaff().catch(() => {}); loadAudit().catch(() => {});

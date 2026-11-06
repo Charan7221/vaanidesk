@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Create your clinic · VaaniDesk</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+</head>
+<body>
+<div class="auth">
+  <aside class="auth-side">
+    <div class="sb-brand"><span class="sb-logo"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9v4a2 2 0 0 0 2 2h1v-6H5a7 7 0 0 1 14 0h-1v6h1a2 2 0 0 0 2-2v-4a9 9 0 0 0-9-9z"/></svg></span>VaaniDesk</div>
+    <h1>The receptionist that never misses a patient&rsquo;s call.</h1>
+    <p>VaaniDesk answers your clinic&rsquo;s phone 24/7, books appointments and OPD tokens, sends patients to the right doctor and hands emergencies to your staff.</p>
+    <ul class="auth-points">
+      <li><i>📞</i><span><b>Answers every call</b>: after hours and when the desk is busy</span></li>
+      <li><i>🩺</i><span><b>Right doctor, right fee</b>: departments, OPD tokens and free follow-ups</span></li>
+      <li><i>✅</i><span><b>You stay in control</b>: pilot mode, a follow-up list and a full activity log</span></li>
+    </ul>
+    <div class="auth-langs"><span>English</span><span>हिन्दी</span><span>తెలుగు</span></div>
+  </aside>
+  <main class="auth-main">
+    <div class="auth-card">
+      <h2>Create your clinic&rsquo;s account</h2>
+      <p class="sub">Free to set up. You&rsquo;ll be the owner and can add your receptionists later.</p>
+      <form id="form">
+        <label class="field">Clinic or hospital name <input name="clinic_name" required minlength="2" placeholder="e.g. Sai Family Clinic" /></label>
+        <div class="seg" role="radiogroup" aria-label="Type">
+          <label><input type="radio" name="template" value="clinic" checked /><b>Clinic</b>1&ndash;5 doctors</label>
+          <label><input type="radio" name="template" value="hospital" /><b>Hospital</b>Several departments</label>
+        </div>
+        <label class="field">Your name <input name="your_name" autocomplete="name" /></label>
+        <label class="field">Email <input name="email" type="email" autocomplete="email" required /></label>
+        <label class="field">Password <input name="password" type="password" autocomplete="new-password" minlength="10" required placeholder="At least 10 characters" /></label>
+        <label class="field">Clinic phone (optional) <input name="phone" type="tel" placeholder="+91…" /></label>
+        <label class="field" id="codeField" hidden>Invitation code <input name="code" /></label>
+        <button class="primary" type="submit">Create clinic</button>
+        <p class="err small" id="err"></p>
+        <p class="small muted" style="margin:0">Your clinic starts in <b>pilot mode</b>: your staff confirm every booking the AI makes until you switch it off.</p>
+      </form>
+      <div class="auth-alt"><span>Already have an account? <a href="/login">Log in</a></span></div>
+    </div>
+  </main>
+</div>
+<script>
+  fetch("/api/signup-config").then(r => r.json()).then(c => {
+    if (!c.enabled) { document.getElementById("form").innerHTML = "<p>Sign-up is closed. Contact us for an invitation.</p>"; }
+    if (c.code_required) document.getElementById("codeField").hidden = false;
+  });
+  const form = document.getElementById("form");
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const btn = form.querySelector("button"), body = Object.fromEntries(new FormData(form));
+    btn.disabled = true; btn.textContent = "Creating…";
+    const r = await fetch("/api/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    btn.disabled = false; btn.textContent = "Create clinic";
+    if (!r.ok) { const d = await r.json().catch(() => ({})); document.getElementById("err").textContent = typeof d.detail === "string" ? d.detail : "Please check the form: clinic name, email and a password of 10+ characters."; return; }
+    location.href = "/setup?welcome=1";
+  };
+</script>
+</body>
+</html>

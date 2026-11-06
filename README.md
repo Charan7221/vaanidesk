@@ -45,6 +45,8 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 🎫 **OPD token queue:** callers take a walk-in **OPD token** by phone ("token 7 for Dr. Rao's evening OPD, please come by 5:45"), ask "which number is going on?" or "how long will I wait?", and cancel tokens. Reception runs the live queue on the **OPD page**: walk-in tokens, **Next patient**, missed turns, "doctor running late" (shifts every estimate) and cancelled sessions. Patients get a reusable patient number on their first token.
 - 🩺 **Right doctor for new patients:** callers describe the problem ("knee pain", "my son has a cough") and VaaniDesk picks the **department and doctor**, applying age rules (children → paediatrics) and gender rules (pregnancy → gynaecology), and flags danger signs for 108. It never diagnoses. Works for a 2-doctor clinic ([`config/business.yaml`](config/business.yaml)) or a multispeciality hospital ([`config/hospital.yaml`](config/hospital.yaml), 8 departments).
 - 💰 **Consultation fees and free follow-ups:** fees per department or doctor; a repeat visit to the same department within N days is a follow-up (free or reduced). It's tracked per patient across tokens and appointments, told to the caller, and shown on the OPD page with **Mark paid**.
+- 💬 **Chat or talk:** the public page (`/demo?clinic=<id>`) works as a chatbot (type) or a voice call (talk) in the same conversation, with suggestion chips, a typing indicator, and the receptionist's actions shown as cards: free time slots you can tap, booking confirmations, OPD token tickets, the recommended doctor, and the document an answer came from.
+- 🔑 **Self-service sign-up:** a clinic creates its account on `/signup` (starting in pilot mode), then adds its receptionists; staff log in on `/login`. Wrong-password attempts and sign-up spam are rate-limited. `SIGNUP_ENABLED` / `SIGNUP_CODE` close sign-up or make it invite-only.
 - 🏥 **One server, many clinics:** every call, patient, booking, token, document and staff account belongs to a clinic, enforced in one place in the database layer. Each clinic has its own phone numbers, demo link (`/demo?clinic=<id>`) and calendar feed. Staff log in with their own accounts (**owner** or **receptionist**), every action is in an activity log, and owners edit doctors, hours, departments, fees, FAQs and settings on a **Setup** page instead of YAML. A platform **Clinics** page creates clinics from a clinic or hospital template and shows each clinic's monthly calls, minutes and bookings.
 - 🇮🇳 **Indian phone numbers:** an **Exotel** Voicebot (AgentStream) integration, so clinics can forward their existing number to VaaniDesk on busy or no answer (see [GO_LIVE Step 4](docs/GO_LIVE.md)).
 - 📈 **Results report for clinic owners** (`/report`, printable): calls answered, how many the front desk **would have missed** (after hours, or while already on a call), share handled without staff, appointments and tokens booked, consultation fees from AI bookings, staff time saved, language mix and busiest hours.
@@ -53,7 +55,7 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 💬 **SMS / WhatsApp confirmations** through Twilio
 - 📊 **Owner dashboard:** calls, transcripts, AI call summaries, booking rate, per-turn latency, language mix
-- 🧪 **Tested:** 152 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 156 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
 - 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
 
@@ -146,7 +148,7 @@ Everything about the business lives in [`config/business.yaml`](config/business.
 ## Tests and evals
 
 ```bash
-pytest -q                       # 152 tests, offline, about 40 s
+pytest -q                       # 156 tests, offline, about 40 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 ```

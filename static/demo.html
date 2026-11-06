@@ -2,47 +2,74 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VaaniDesk Live Demo</title>
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>VaaniDesk · AI receptionist</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <link rel="stylesheet" href="/static/chat.css?v=2" />
 </head>
-<body>
-<header class="top">
-  <div class="brand"><span class="dot"></span> VaaniDesk <span class="badge">AI Receptionist</span></div>
-  <nav><a href="/dashboard">Owner dashboard</a><a href="/docs">API</a></nav>
+<body class="chat-page">
+<header class="chat-top">
+  <a class="sb-brand" href="/demo"><span class="sb-logo"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9v4a2 2 0 0 0 2 2h1v-6H5a7 7 0 0 1 14 0h-1v6h1a2 2 0 0 0 2-2v-4a9 9 0 0 0-9-9z"/></svg></span>VaaniDesk</a>
+  <span class="chat-clinic" id="clinicName"></span>
+  <nav><a href="/signup" class="ghost-link">For clinics</a><a href="/login" class="ghost-link">Staff login</a></nav>
 </header>
-<main>
-  <p class="muted" id="intro">Talk to the AI receptionist in English, हिन्दी or తెలుగు. Try: “I want to book an appointment tomorrow evening.”</p>
-  <div class="demo-grid">
-    <section class="panel call-card">
-      <div id="orb" class="orb idle"></div>
-      <div id="status" class="status-line">Ready</div>
-      <div class="field">Preferred greeting language
-        <select id="lang">
-          <option value="en-IN">English</option>
-          <option value="hi-IN">हिन्दी (Hindi)</option>
-          <option value="te-IN">తెలుగు (Telugu)</option>
-        </select>
+
+<div class="chat-app">
+  <!-- left: the receptionist + call controls -->
+  <aside class="agent-card" id="agentCard">
+    <div class="agent-visual">
+      <div class="orb-wrap" id="orbWrap"><div class="ring r1"></div><div class="ring r2"></div><div class="orb2" id="orb"></div></div>
+      <h2 id="agentName">Vaani</h2>
+      <p class="agent-role" id="agentRole">AI receptionist</p>
+      <span class="state-pill" id="statePill"><i></i><span id="stateText">Ready to help</span></span>
+    </div>
+    <div class="seg-lang" role="radiogroup" aria-label="Language">
+      <label><input type="radio" name="lang" value="en-IN" checked /><span>English</span></label>
+      <label><input type="radio" name="lang" value="hi-IN" /><span>हिन्दी</span></label>
+      <label><input type="radio" name="lang" value="te-IN" /><span>తెలుగు</span></label>
+    </div>
+    <button class="call-btn" id="callBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg><span>Start voice call</span></button>
+    <details class="agent-more">
+      <summary>Options</summary>
+      <label class="field">Your mobile (for the SMS/WhatsApp confirmation)<input id="phone" type="tel" placeholder="+91 9XXXXXXXXX" autocomplete="tel" /></label>
+      <label class="field" id="codeField" hidden>Demo access code<input id="code" type="password" /></label>
+    </details>
+    <div class="agent-meta">
+      <span>Response time <b id="latency">–</b></span>
+      <span id="phoneLine"></span>
+    </div>
+  </aside>
+
+  <!-- right: the conversation -->
+  <section class="chat" aria-label="Conversation">
+    <div class="chat-head">
+      <div class="who"><span class="mini-avatar" id="miniAvatar">V</span>
+        <div><b id="headName">Vaani</b><span id="headSub">Typically replies in about a second</span></div></div>
+      <div class="head-actions">
+        <button class="icon-btn" id="voiceToggle" title="Voice replies" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/></svg></button>
+        <button class="icon-btn" id="stepsToggle" title="Show what the AI is doing" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94z"/></svg></button>
+        <button class="icon-btn" id="newChat" title="New conversation"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg></button>
       </div>
-      <div class="field">Your phone (optional, for SMS confirmation)
-        <input id="phone" type="tel" placeholder="+91XXXXXXXXXX" />
+    </div>
+
+    <div class="chat-body" id="chatBody">
+      <div class="welcome-card" id="welcome">
+        <div class="mini-avatar big">V</div>
+        <h3 id="welcomeTitle">Hi! I&rsquo;m Vaani.</h3>
+        <p id="welcomeText">I can book appointments, give OPD tokens, tell you which doctor to see, and answer questions about the clinic, in English, हिन्दी or తెలుగు.</p>
+        <div class="chips" id="chips"></div>
       </div>
-      <div class="field" id="codeField" hidden>Demo access code
-        <input id="code" type="password" />
-      </div>
-      <button id="callBtn" class="primary">Start call</button>
-      <div class="small muted">Latency (speech end → AI voice): <span id="latency" class="badge">–</span></div>
-      <div class="small muted" id="phoneLine"></div>
-    </section>
-    <section class="panel">
-      <div id="transcript" class="transcript"></div>
-      <form id="composer" class="composer">
-        <input id="textInput" placeholder="…or type a message (works during a call)" autocomplete="off" disabled />
-        <button id="sendBtn" disabled>Send</button>
-      </form>
-    </section>
-  </div>
-</main>
-<script src="/static/demo.js?v=5"></script>
+      <div id="messages" class="messages" aria-live="polite"></div>
+    </div>
+
+    <form class="composer2" id="composer">
+      <textarea id="textInput" rows="1" placeholder="Type a message… (or start a voice call)" autocomplete="off"></textarea>
+      <button type="button" class="icon-btn mic" id="micBtn" title="Voice call"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3"/></svg></button>
+      <button type="submit" class="send" id="sendBtn" title="Send" disabled><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
+    </form>
+    <p class="fineprint">AI assistant. It never gives medical advice. In an emergency call <b id="emergency">108</b>.</p>
+  </section>
+</div>
+<script src="/static/demo.js?v=7"></script>
 </body>
 </html>

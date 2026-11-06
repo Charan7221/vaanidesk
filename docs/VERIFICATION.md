@@ -15,7 +15,7 @@ Keep that window open; errors appear there. Use **headphones** for voice tests, 
 
 ### 1.1 Automated tests
 - [x] In a **second** Command Prompt (activate `.venv` first): `pip install -r requirements-dev.txt` then `pytest -q`
-  - **Expected:** `152 passed`
+  - **Expected:** `156 passed`
 - [x] `python -m scripts.check_setup`
   - **Expected:** `[PASS]` for LLM, Sarvam TTS (stream), Sarvam TTS (rest) and STT. Google Calendar shows `[SKIP]`.
 - Notes:

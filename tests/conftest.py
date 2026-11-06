@@ -73,3 +73,12 @@ def at(business):
         return datetime(day.year, day.month, day.day, h, m, tzinfo=business.tz)
 
     return _at
+
+
+@pytest.fixture(autouse=True)
+def _fresh_rate_limits():
+    """Login / sign-up rate limits are per server process: start every test with a clean slate."""
+    from app.api.accounts import limiter
+    limiter.hits.clear()
+    yield
+    limiter.hits.clear()

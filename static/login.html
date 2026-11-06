@@ -3,29 +3,52 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>VaaniDesk Login</title>
-  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <title>Log in · VaaniDesk</title>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
 </head>
 <body>
-<header class="top"><div class="brand"><span class="dot"></span> VaaniDesk</div><nav><a href="/demo">Live demo</a></nav></header>
-<main class="login-wrap">
-  <form class="panel login" id="form">
-    <h2>Staff login</h2>
-    <label class="field">Email <input name="email" type="text" autocomplete="username" required autofocus /></label>
-    <label class="field">Password <input name="password" type="password" autocomplete="current-password" required /></label>
-    <button class="primary" type="submit">Log in</button>
-    <p class="err small" id="err"></p>
-    <p class="small muted">Forgot your password? Ask your clinic owner to reset it from Setup → Staff.</p>
-  </form>
-</main>
+<div class="auth">
+  <aside class="auth-side">
+    <div class="sb-brand"><span class="sb-logo"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 0 0-9 9v4a2 2 0 0 0 2 2h1v-6H5a7 7 0 0 1 14 0h-1v6h1a2 2 0 0 0 2-2v-4a9 9 0 0 0-9-9z"/></svg></span>VaaniDesk</div>
+    <h1>The receptionist that never misses a patient&rsquo;s call.</h1>
+    <p>VaaniDesk answers your clinic&rsquo;s phone 24/7, books appointments and OPD tokens, sends patients to the right doctor and hands emergencies to your staff.</p>
+    <ul class="auth-points">
+      <li><i>📞</i><span><b>Answers every call</b>: after hours and when the desk is busy</span></li>
+      <li><i>🩺</i><span><b>Right doctor, right fee</b>: departments, OPD tokens and free follow-ups</span></li>
+      <li><i>✅</i><span><b>You stay in control</b>: pilot mode, a follow-up list and a full activity log</span></li>
+    </ul>
+    <div class="auth-langs"><span>English</span><span>हिन्दी</span><span>తెలుగు</span></div>
+  </aside>
+  <main class="auth-main">
+    <div class="auth-card">
+      <h2>Welcome back</h2>
+      <p class="sub">Log in to your clinic&rsquo;s VaaniDesk.</p>
+      <form id="form">
+        <label class="field">Email <input name="email" type="text" autocomplete="username" required autofocus /></label>
+        <label class="field">Password <input name="password" type="password" autocomplete="current-password" required /></label>
+        <button class="primary" type="submit">Log in</button>
+        <p class="err small" id="err"></p>
+      </form>
+      <div class="auth-alt">
+        <span id="signupLine">New clinic? <a href="/signup">Create your clinic&rsquo;s account</a></span>
+        <span>Receptionist? Your clinic owner adds you in <b>Setup → Staff</b> and gives you your login.</span>
+        <span>Forgot your password? Ask your clinic owner to reset it.</span>
+        <span><a href="/demo">Try the receptionist without an account →</a></span>
+      </div>
+    </div>
+  </main>
+</div>
 <script>
+  fetch("/api/signup-config").then(r => r.json()).then(c => { if (!c.enabled) document.getElementById("signupLine").hidden = true; });
   const form = document.getElementById("form");
   form.onsubmit = async (e) => {
     e.preventDefault();
-    const f = new FormData(form);
+    const f = new FormData(form), btn = form.querySelector("button");
+    btn.disabled = true;
     const r = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email: f.get("email"), password: f.get("password") }) });
-    if (!r.ok) { document.getElementById("err").textContent = (await r.json().catch(() => ({}))).detail || "Login failed"; return; }
+    btn.disabled = false;
+    if (!r.ok) { const d = await r.json().catch(() => ({})); document.getElementById("err").textContent = typeof d.detail === "string" ? d.detail : "Login failed"; return; }
     const next = new URLSearchParams(location.search).get("next");
     location.href = next && next.startsWith("/") && !next.startsWith("//") ? next : "/dashboard";
   };

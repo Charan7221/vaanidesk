@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     # --- Dashboard auth (HTTP Basic) ---
     admin_user: str = "admin"  # platform super admin (all clinics)
     admin_password: str = "change-me"
+    signup_enabled: bool = True  # clinics can create their own account on /signup
+    signup_code: str = ""  # if set, /signup asks for this invitation code
     secret_key: str = ""  # signs login cookies; set a long random value in production
 
     # --- LLM (OpenAI) ---

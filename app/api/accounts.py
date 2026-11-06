@@ -1,7 +1,9 @@
 """Login, staff accounts, clinic setup and (platform admin) clinic management."""
 from __future__ import annotations
 
+import hmac
 import re
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -31,6 +33,40 @@ from ..db import DEFAULT_CLINIC, Appointment, AuditLog, Call, Clinic, OpdToken, 
 from ..phone import normalize_phone
 
 router = APIRouter(prefix="/api", tags=["accounts"])
+
+
+class RateLimiter:
+    """In-memory sliding-window counter (per server process): slows down password guessing and sign-up spam."""
+
+    def __init__(self):
+        self.hits: dict[str, list[float]] = {}
+
+    def _recent(self, key: str, window_s: int) -> list[float]:
+        now = time.monotonic()
+        self.hits[key] = [t for t in self.hits.get(key, []) if now - t < window_s]
+        return self.hits[key]
+
+    def allow(self, key: str, limit: int, window_s: int, count: bool = True) -> bool:
+        recent = self._recent(key, window_s)
+        if len(recent) >= limit:
+            return False
+        if count:
+            recent.append(time.monotonic())
+        return True
+
+    def hit(self, key: str) -> None:
+        self.hits.setdefault(key, []).append(time.monotonic())
+
+    def reset(self, key: str) -> None:
+        self.hits.pop(key, None)
+
+
+limiter = RateLimiter()
+
+
+def _ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
 TEMPLATES = {"clinic": ROOT_DIR / "config" / "business.yaml", "hospital": ROOT_DIR / "config" / "hospital.yaml"}
 
 
@@ -48,9 +84,14 @@ class LoginIn(BaseModel):
 @router.post("/login")
 async def login(body: LoginIn, request: Request, response: Response) -> dict:
     state = request.app.state.container
+    key = f"login:{_ip(request)}:{body.email.strip().lower()}"
+    if not limiter.allow(key, limit=8, window_s=900, count=False):
+        raise HTTPException(429, "Too many wrong passwords. Wait 15 minutes and try again.")
     p = await authenticate(state, body.email.strip(), body.password)
     if p is None:
+        limiter.hit(key)
         raise HTTPException(401, "Wrong email or password")
+    limiter.reset(key)
     _cookie(response, request, SESSION_COOKIE, make_session_token(state.settings, p.id), SESSION_DAYS * 86400)
     request.state.principal = p
     if p.clinic_id:
@@ -267,29 +308,103 @@ async def list_clinics(request: Request, _=Depends(require_superadmin)) -> list[
     return out
 
 
+async def _email_free(state, email: str) -> str:
+    email = _check_email(email)
+    async with state.db.session() as s:
+        taken = (await s.execute(select(User).where(func.lower(User.email) == email)
+                                 .execution_options(all_clinics=True))).scalars().first()
+    if taken or email == state.settings.admin_user.lower():
+        raise HTTPException(409, "That email already has an account. Log in instead.")
+    return email
+
+
+async def new_clinic(state, clinic_id: str, name: str, template: str, owner_email: str, owner_password: str,
+                     owner_name: str = "Owner", numbers: list[str] | None = None,
+                     pilot_mode: bool | None = None, phone: str | None = None) -> Business:
+    """Create a clinic from a template plus its owner account (everything checked before anything is saved)."""
+    if clinic_id in state.tenants:
+        raise HTTPException(409, "A clinic with that id exists")
+    tpl = TEMPLATES.get(template)
+    if tpl is None:
+        raise HTTPException(422, f"template must be one of {', '.join(TEMPLATES)}")
+    if problem := password_problem(owner_password):
+        raise HTTPException(422, problem)
+    email = await _email_free(state, owner_email)
+    config = yaml.safe_load(Path(tpl).read_text(encoding="utf-8"))
+    config["name"] = name
+    if pilot_mode is not None:
+        config["pilot_mode"] = pilot_mode
+    if phone:
+        config["phone"] = phone
+    for p in config.get("providers", []):  # doctor ids are unique across clinics: prefix with the clinic id
+        p["id"] = f"{clinic_id}-{p['id']}"
+    biz = _validate_config(state, clinic_id, config)
+    async with state.db.session() as s:
+        s.add(Clinic(id=clinic_id, name=name, config=biz.model_dump(mode="json"), phone_numbers=numbers or []))
+        await s.commit()
+    await create_user(state, clinic_id, email, owner_name, "owner", owner_password)
+    state.add_tenant(clinic_id, biz)
+    return biz
+
+
 @router.post("/admin/clinics")
 async def create_clinic(body: ClinicIn, request: Request, _=Depends(require_superadmin)) -> dict:
     state = request.app.state.container
-    if body.id in state.tenants:
-        raise HTTPException(409, "A clinic with that id exists")
-    tpl = TEMPLATES.get(body.template)
-    if tpl is None:
-        raise HTTPException(422, f"template must be one of {', '.join(TEMPLATES)}")
-    config = yaml.safe_load(Path(tpl).read_text(encoding="utf-8"))
-    config["name"] = body.name
-    # doctor ids must be unique across clinics: prefix the template's ids with the clinic id
-    old_ids = {}
-    for p in config.get("providers", []):
-        old_ids[p["id"]] = p["id"] = f"{body.id}-{p['id']}"
-    biz = _validate_config(state, body.id, config)
-    numbers = _numbers(body.phone_numbers)
-    async with state.db.session() as s:
-        s.add(Clinic(id=body.id, name=body.name, config=biz.model_dump(mode="json"), phone_numbers=numbers))
-        await s.commit()
-    await create_user(state, body.id, body.owner_email, "Owner", "owner", body.owner_password)
-    state.add_tenant(body.id, biz)
+    await new_clinic(state, body.id, body.name, body.template, body.owner_email, body.owner_password,
+                     numbers=_numbers(body.phone_numbers))
     await audit(request, "clinic.create", body.id, template=body.template)
     return {"id": body.id}
+
+
+# ------------------------------------------------------------------ self-service sign-up
+class SignupIn(BaseModel):
+    clinic_name: str = Field(min_length=2, max_length=160)
+    your_name: str = Field(default="", max_length=120)
+    email: str
+    password: str
+    template: str = "clinic"  # clinic | hospital
+    phone: str | None = None
+    code: str | None = None  # invite code, if SIGNUP_CODE is set
+
+
+def _slug(name: str, taken) -> str:
+    base = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:24].strip("-") or "clinic"
+    slug, n = base, 2
+    while slug in taken or slug == DEFAULT_CLINIC:
+        slug, n = f"{base}-{n}", n + 1
+    return slug
+
+
+@router.get("/signup-config")
+async def signup_config(request: Request) -> dict:
+    s = request.app.state.container.settings
+    return {"enabled": s.signup_enabled, "code_required": bool(s.signup_code)}
+
+
+@router.post("/signup")
+async def signup(body: SignupIn, request: Request, response: Response) -> dict:
+    """A clinic owner creates their clinic and account. New clinics start in pilot mode (staff confirm
+    every AI booking) until the owner switches it off in Setup."""
+    state = request.app.state.container
+    s = state.settings
+    if not s.signup_enabled:
+        raise HTTPException(403, "Sign-up is closed. Ask VaaniDesk for an invitation.")
+    if s.signup_code and not hmac.compare_digest((body.code or "").strip(), s.signup_code):
+        raise HTTPException(403, "Wrong invitation code")
+    if not limiter.allow(f"signup:{_ip(request)}", limit=5, window_s=3600):
+        raise HTTPException(429, "Too many sign-ups from this network. Try again later.")
+    async with state.db.session() as sess:
+        taken = set((await sess.execute(select(Clinic.id))).scalars())
+    clinic_id = _slug(body.clinic_name, taken)
+    phone = normalize_phone(body.phone) if body.phone and body.phone.strip() else None
+    await new_clinic(state, clinic_id, body.clinic_name.strip(), body.template, body.email, body.password,
+                     owner_name=body.your_name.strip() or "Owner", pilot_mode=True, phone=phone)
+    p = await authenticate(state, body.email.strip(), body.password)
+    _cookie(response, request, SESSION_COOKIE, make_session_token(s, p.id), SESSION_DAYS * 86400)
+    request.state.principal = p
+    current_clinic.set(clinic_id)
+    await audit(request, "clinic.signup", clinic_id, template=body.template)
+    return {"clinic_id": clinic_id}
 
 
 @router.post("/admin/clinics/{clinic_id}")
