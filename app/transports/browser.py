@@ -16,6 +16,7 @@ import secrets
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ..background import spawn
 from ..db import DEFAULT_CLINIC, current_clinic
 from ..phone import validate_phone
 from .base import Transport
@@ -120,7 +121,7 @@ async def browser_call(ws: WebSocket) -> None:
         if session:
             # Finish the call record even if this handler is being cancelled (client vanished): a database
             # write interrupted half-way leaves a broken connection behind.
-            await asyncio.shield(_finish(state, session))
+            await asyncio.shield(spawn(_finish(state, session), name="call-cleanup"))
 
 
 async def _finish(state, session) -> None:

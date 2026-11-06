@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
@@ -180,3 +181,23 @@ async def test_backup_export_restore_and_drill(db, calendar, monday, at, tmp_pat
     except SystemExit:
         pass
     await fresh.dispose()
+
+
+# ------------------------------------------------------------------ cancellation safety
+async def test_call_writes_finish_even_if_the_caller_is_cancelled(db):
+    """A barge-in or a hang-up cancels the task that is writing; the write must still complete
+    (a write cut off half-way leaves a broken SQLite connection that blocks every later write)."""
+    call = await db.create_call(channel="phone", caller="+919000000001")
+    task = asyncio.create_task(db.add_turn(call.id, "user", "hello"))
+    await asyncio.sleep(0)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    from app.background import drain
+    await drain()
+    async with db.session() as s:
+        from sqlalchemy import select
+
+        from app.db import Turn
+        assert [t.text for t in (await s.execute(select(Turn))).scalars()] == ["hello"]
+    await db.add_turn(call.id, "assistant", "still works")  # the database is not left locked

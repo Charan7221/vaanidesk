@@ -12,6 +12,10 @@
   nav.querySelectorAll('a[href="/demo"]').forEach(a => a.href = `/demo?clinic=${encodeURIComponent(me.clinic_id)}`);
   const here = location.pathname;
   const link = (href, text) => `<a href="${href}"${here === href ? ' aria-current="page"' : ""}>${text}</a>`;
+  if (!nav.querySelector('a[href="/report"]')) {
+    const dash = nav.querySelector('a[href="/dashboard"]');
+    if (dash) dash.insertAdjacentHTML("afterend", link("/report", "Results"));
+  }
   let extra = "";
   if (me.role === "owner" || me.role === "superadmin") extra += link("/setup", "Setup");
   if (me.role === "superadmin") extra += link("/admin", "Clinics");

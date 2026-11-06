@@ -4,6 +4,8 @@ SQLite is used by default; set DATABASE_URL=postgresql+asyncpg://... for Postgre
 """
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 import uuid
 from contextvars import ContextVar
@@ -171,6 +173,7 @@ class Appointment(ClinicScoped, Base):
     fee_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Pilot mode: AI bookings wait for staff (False = pending). None/True = confirmed.
     confirmed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     external_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -267,6 +270,7 @@ class OpdToken(ClinicScoped, Base):
     fee_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     paid: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=False)
     confirmed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)  # pilot mode, as for appointments
+    reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     called_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     done_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -301,6 +305,16 @@ def _add_missing_columns(sync_conn) -> None:
                 ddl = col.type.compile(dialect=sync_conn.dialect)
                 sync_conn.execute(text(f'ALTER TABLE {table.name} ADD COLUMN {col.name} {ddl}'))
                 log.info("Added column %s.%s", table.name, col.name)
+
+
+def shielded(fn):
+    """Run a database write to completion even if the caller is cancelled (a caller hanging up, a barge-in
+    cancelling the reply). A write cancelled half-way leaves a broken SQLite connection that blocks others."""
+    @functools.wraps(fn)
+    async def wrapper(*args, **kwargs):
+        from .background import spawn
+        return await asyncio.shield(spawn(fn(*args, **kwargs), name=f"db.{fn.__name__}"))
+    return wrapper
 
 
 class Database:
@@ -349,6 +363,7 @@ class Database:
         return self.sessionmaker()
 
     # ---------- calls ----------
+    @shielded
     async def create_call(self, channel: str, caller: str | None = None, external_id: str | None = None) -> Call:
         async with self.session() as s:
             call = Call(channel=channel, caller=caller, external_id=external_id)
@@ -356,12 +371,14 @@ class Database:
             await s.commit()
             return call
 
+    @shielded
     async def add_turn(self, call_id: str, role: str, text: str, language: str | None = None,
                        latency_ms: float | None = None, meta: dict | None = None) -> None:
         async with self.session() as s:
             s.add(Turn(call_id=call_id, role=role, text=text, language=language, latency_ms=latency_ms, meta=meta))
             await s.commit()
 
+    @shielded
     async def finish_call(self, call_id: str, **fields) -> None:
         async with self.session() as s:
             call = await s.get(Call, call_id)
@@ -373,6 +390,7 @@ class Database:
                 call.ended_at = utcnow()
             await s.commit()
 
+    @shielded
     async def update_call(self, call_id: str, **fields) -> None:
         async with self.session() as s:
             call = await s.get(Call, call_id)
@@ -468,6 +486,7 @@ class Database:
             return appt
 
     # ---------- follow-ups ----------
+    @shielded
     async def add_follow_up(self, kind: str, reason: str, call_id: str | None = None, phone: str | None = None,
                             patient_name: str | None = None) -> FollowUp | None:
         """Add a follow-up, at most one open one per call and kind (so retries don't flood the list)."""

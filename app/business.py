@@ -65,6 +65,13 @@ class OPDConfig(BaseModel):
     advance_days: int = 2  # tokens can be taken for today and up to this many days ahead
 
 
+class ReminderConfig(BaseModel):
+    """Day-before reminders (WhatsApp, else SMS) for appointments and OPD tokens: fewer no-shows."""
+
+    enabled: bool = True
+    send_at: str = "18:00"  # local time, the evening before the visit
+
+
 class Business(BaseModel):
     name: str
     assistant_name: str = "Vaani"
@@ -99,6 +106,7 @@ class Business(BaseModel):
     # Tell callers at the start that they're speaking to an AI assistant and the call is transcribed.
     consent_notice: bool = True
     transcript_retention_days: int = 90  # call transcripts and summaries are deleted after this (0 = keep)
+    reminders: ReminderConfig = Field(default_factory=ReminderConfig)
     staff_alert_phone: str = ""  # SMS/WhatsApp for new follow-ups (defaults to handoff_number)
     departments: list[Department] = Field(default_factory=list)
     fees: FeePolicy = Field(default_factory=FeePolicy)

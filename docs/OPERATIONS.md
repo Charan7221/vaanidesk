@@ -36,6 +36,10 @@ Open the dashboard. The **Needs attention** panel lists:
 
 Nothing disappears until someone presses **Done**, so no request is lost.
 
+## 2b. Showing the clinic what it gets
+
+Every week (or before a renewal), open **Results**, choose the period and press **Print / save as PDF**. Send it to the clinic owner. The headline ("answered N calls, about M would likely have been missed") and the consultation fees from AI bookings are what justify the subscription.
+
 ## 3. Backups and the restore drill
 
 ```bash

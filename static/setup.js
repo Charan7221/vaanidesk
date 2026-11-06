@@ -43,6 +43,8 @@
       field("SMS alerts for follow-ups to", "staff_alert_phone", cfg.staff_alert_phone, "tel", 'placeholder="defaults to transfer number"'),
       field("Appointment length (minutes)", "slot_minutes", cfg.slot_minutes, "number", 'min="5"'),
       field("Book up to (days ahead)", "booking_horizon_days", cfg.booking_horizon_days, "number", 'min="1"'),
+      check("Day-before reminders (WhatsApp/SMS)", "rem_enabled", (cfg.reminders || {}).enabled !== false),
+      field("Send reminders at", "rem_at", (cfg.reminders || {}).send_at || "18:00", "time"),
       check("OPD walk-in tokens", "opd_enabled", o.enabled),
       field("Average consultation (minutes)", "opd_avg", o.avg_consult_minutes, "number", 'min="1"'),
       field("Max tokens per doctor per session", "opd_max", o.max_tokens_per_session, "number", 'min="1"'),
@@ -108,6 +110,7 @@
     cfg.pilot_mode = v("pilot_mode").checked; cfg.consent_notice = v("consent_notice").checked;
     cfg.transcript_retention_days = num(v("transcript_retention_days").value) ?? 90;
     cfg.slot_minutes = num(v("slot_minutes").value) ?? 20; cfg.booking_horizon_days = num(v("booking_horizon_days").value) ?? 14;
+    cfg.reminders = { enabled: v("rem_enabled").checked, send_at: v("rem_at").value || "18:00" };
     cfg.opd = { ...cfg.opd, enabled: v("opd_enabled").checked, avg_consult_minutes: num(v("opd_avg").value) ?? 10,
       max_tokens_per_session: num(v("opd_max").value) ?? 40, stop_before_end_minutes: num(v("opd_stop").value) ?? 30, advance_days: num(v("opd_advance").value) ?? 2 };
   }

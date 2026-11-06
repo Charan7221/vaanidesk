@@ -18,6 +18,8 @@ from .api.calendar import router as calendar_router
 from .api.dashboard import router as dashboard_router
 from .api.knowledge import router as knowledge_router
 from .api.opd import router as opd_router
+from .api.report import router as report_router
+from .background import drain
 from .config import ROOT_DIR, Settings, get_settings
 from .db import DEFAULT_CLINIC, current_clinic
 from .security import require_admin, require_owner, require_superadmin
@@ -30,21 +32,42 @@ STATIC_DIR = ROOT_DIR / "static"
 NO_CACHE = {"Cache-Control": "no-cache"}  # always serve the latest page after an update
 
 
-async def _retention_loop(container) -> None:
-    """Delete call transcripts older than business.transcript_retention_days, at startup and then daily."""
+async def _purge_transcripts(container) -> None:
+    """Delete call transcripts older than each clinic's business.transcript_retention_days."""
+    log = logging.getLogger("vaanidesk")
+    for clinic_id, tenant in list(container.tenants.items()):
+        token = current_clinic.set(clinic_id)
+        try:
+            days = tenant.business.transcript_retention_days
+            if n := await container.db.purge_transcripts(days):
+                log.info("[%s] deleted transcripts of %d calls older than %d days", clinic_id, n, days)
+        except Exception:
+            log.exception("Transcript retention cleanup failed for %s", clinic_id)
+        finally:
+            current_clinic.reset(token)
+
+
+async def _reminder_loop(container, every_s: int = 600) -> None:
+    """Every 10 minutes: send tomorrow's appointment / token reminders for clinics whose send time has passed."""
+    from .tools.reminders import send_reminders
     log = logging.getLogger("vaanidesk")
     while True:
+        await asyncio.sleep(every_s)
         for clinic_id, tenant in list(container.tenants.items()):
             token = current_clinic.set(clinic_id)
             try:
-                days = tenant.business.transcript_retention_days
-                if n := await container.db.purge_transcripts(days):
-                    log.info("[%s] deleted transcripts of %d calls older than %d days", clinic_id, n, days)
+                await asyncio.shield(send_reminders(container.db, tenant.business, container.twilio))
             except Exception:
-                log.exception("Transcript retention cleanup failed for %s", clinic_id)
+                log.exception("Reminders failed for %s", clinic_id)
             finally:
                 current_clinic.reset(token)
+
+
+async def _retention_loop(container) -> None:
+    """Daily cleanup (the first run happens at startup, before serving)."""
+    while True:
         await asyncio.sleep(24 * 3600)
+        await asyncio.shield(_purge_transcripts(container))
 
 
 def create_app(settings: Settings | None = None, state: AppState | None = None) -> FastAPI:
@@ -63,14 +86,19 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         except Exception:  # never block startup on the knowledge base
             logging.getLogger("vaanidesk").exception("Knowledge base sync failed")
         app.state.container = container
+        await _purge_transcripts(container)
         retention = asyncio.create_task(_retention_loop(container))
+        reminders = asyncio.create_task(_reminder_loop(container))
         if state is None and (missing := settings.missing_keys()):
             logging.getLogger("vaanidesk").warning("Live calls disabled until these are set in .env: %s",
                                                    ", ".join(missing))
         yield
         retention.cancel()
+        reminders.cancel()
+        await asyncio.gather(retention, reminders, return_exceptions=True)
         for session in list(container.active_sessions.values()):
             await session.close()
+        await drain()  # let SMS / summaries finish before the database closes
         await container.db.dispose()
 
     app = FastAPI(title="VaaniDesk", version="1.0.0", lifespan=lifespan,
@@ -83,6 +111,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     app.include_router(knowledge_router)
     app.include_router(opd_router)
     app.include_router(accounts_router)
+    app.include_router(report_router)
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", include_in_schema=False)
@@ -104,6 +133,10 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
     @app.get("/opd", include_in_schema=False, dependencies=[Depends(require_admin)])
     async def opd_page():
         return FileResponse(STATIC_DIR / "opd.html", headers=NO_CACHE)
+
+    @app.get("/report", include_in_schema=False, dependencies=[Depends(require_admin)])
+    async def report_page():
+        return FileResponse(STATIC_DIR / "report.html", headers=NO_CACHE)
 
     @app.get("/login", include_in_schema=False)
     async def login_page():

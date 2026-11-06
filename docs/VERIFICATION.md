@@ -15,7 +15,7 @@ Keep that window open; errors appear there. Use **headphones** for voice tests, 
 
 ### 1.1 Automated tests
 - [x] In a **second** Command Prompt (activate `.venv` first): `pip install -r requirements-dev.txt` then `pytest -q`
-  - **Expected:** `149 passed`
+  - **Expected:** `152 passed`
 - [x] `python -m scripts.check_setup`
   - **Expected:** `[PASS]` for LLM, Sarvam TTS (stream), Sarvam TTS (rest) and STT. Google Calendar shows `[SKIP]`.
 - Notes:
@@ -80,6 +80,11 @@ Open http://localhost:8000/opd (dashboard login) in one tab and the demo in anot
 - [ ] In Setup, rename a doctor and save. Open `/demo?clinic=test-hospital` and ask *"I have knee pain, which doctor?"* **Expected:** the orthopaedic doctor.
 - [ ] Setup → Staff: add a receptionist, log in as them. **Expected:** no Setup link; `/setup` is refused.
 - [ ] Setup → Activity log shows the logins and changes.
+- Notes:
+
+### 1.4e Results and reminders
+- [ ] Make a few demo calls (book one appointment for tomorrow, ask one question, ask for staff), then open **Results**. **Expected:** the calls, the booking and its fee are counted; after-hours calls show under "would have missed".
+- [ ] With Twilio WhatsApp/SMS configured, press **Send tomorrow's reminders now** on Results. **Expected:** the patient booked for tomorrow gets one reminder (in Telugu if they spoke Telugu); pressing again sends nothing new.
 - Notes:
 
 ### 1.5 Measure quality (for README and resume)

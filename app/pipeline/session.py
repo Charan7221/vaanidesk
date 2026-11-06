@@ -23,6 +23,7 @@ import time
 from dataclasses import dataclass
 
 from ..audio import pcm16_duration_ms
+from ..background import spawn
 from ..business import Business
 from ..db import Database
 from ..providers.base import LLMProvider, STTEvent, STTProvider, TTSProvider, TTSStream
@@ -146,7 +147,7 @@ class CallSession:
         except Exception:
             log.exception("[%s] could not record follow-up", self.ctx.call_id)
         if self.d.summarise:
-            asyncio.create_task(self._summarise())
+            spawn(self._summarise(), name=f"summary-{self.ctx.call_id}")
 
     # ------------------------------------------------------------------ STT handling
     async def _stt_loop(self) -> None:

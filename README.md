@@ -47,11 +47,13 @@ VaaniDesk:        books slot → sends SMS/WhatsApp confirmation → logs the ca
 - 💰 **Consultation fees and free follow-ups:** fees per department or doctor; a repeat visit to the same department within N days is a follow-up (free or reduced). It's tracked per patient across tokens and appointments, told to the caller, and shown on the OPD page with **Mark paid**.
 - 🏥 **One server, many clinics:** every call, patient, booking, token, document and staff account belongs to a clinic, enforced in one place in the database layer. Each clinic has its own phone numbers, demo link (`/demo?clinic=<id>`) and calendar feed. Staff log in with their own accounts (**owner** or **receptionist**), every action is in an activity log, and owners edit doctors, hours, departments, fees, FAQs and settings on a **Setup** page instead of YAML. A platform **Clinics** page creates clinics from a clinic or hospital template and shows each clinic's monthly calls, minutes and bookings.
 - 🇮🇳 **Indian phone numbers:** an **Exotel** Voicebot (AgentStream) integration, so clinics can forward their existing number to VaaniDesk on busy or no answer (see [GO_LIVE Step 4](docs/GO_LIVE.md)).
+- 📈 **Results report for clinic owners** (`/report`, printable): calls answered, how many the front desk **would have missed** (after hours, or while already on a call), share handled without staff, appointments and tokens booked, consultation fees from AI bookings, staff time saved, language mix and busiest hours.
+- ⏰ **Day-before reminders** on WhatsApp/SMS for appointments and OPD tokens, in the language the patient spoke, sent once in the evening (time set per clinic) to reduce no-shows.
 - 🛟 **Built for real clinics:** **pilot mode** (AI bookings wait for staff to confirm), a **Needs attention** list on the dashboard (AI outages, calls that ended mid-booking, callback requests, with SMS alerts to staff), a spoken apology and handover when an AI provider fails, a database rule against double bookings, an "I'm an AI assistant" notice, automatic transcript deletion after N days, and backup/restore scripts with a restore drill. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 💬 **SMS / WhatsApp confirmations** through Twilio
 - 📊 **Owner dashboard:** calls, transcripts, AI call summaries, booking rate, per-turn latency, language mix
-- 🧪 **Tested:** 149 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 152 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
 - 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
 
@@ -144,7 +146,7 @@ Everything about the business lives in [`config/business.yaml`](config/business.
 ## Tests and evals
 
 ```bash
-pytest -q                       # 149 tests, offline, about 40 s
+pytest -q                       # 152 tests, offline, about 40 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 ```
@@ -270,6 +272,9 @@ scripts/backup.py         database export / restore / restore drill (SQLite and 
   state.py                one Tenant (profile, calendar, tools, knowledge) per clinic
   api/accounts.py         login, staff accounts, Setup page, platform clinic admin and usage
   transports/exotel.py    Exotel Voicebot (Indian numbers)
+  api/report.py           results report (missed calls saved, bookings, fees, time saved)
+  tools/reminders.py      day-before WhatsApp/SMS reminders
+  background.py           tracked background tasks; database writes that survive cancellation
   api/dashboard.py        owner dashboard API
   api/opd.py              OPD reception screen API (walk-ins, next patient, delays)
 static/                   browser demo (AudioWorklet mic capture) and dashboard

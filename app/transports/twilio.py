@@ -15,6 +15,7 @@ from xml.sax.saxutils import quoteattr
 from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
 from ..audio import pcm16_to_ulaw, ulaw_to_pcm16
+from ..background import spawn
 from ..db import DEFAULT_CLINIC, current_clinic
 from ..security import is_valid_twilio_request
 from ..tools.twilio_client import TwilioClient
@@ -129,7 +130,7 @@ async def media_stream(ws: WebSocket) -> None:
         if session:
             # Finish the call record even if this handler is being cancelled (client vanished): a database
             # write interrupted half-way leaves a broken connection behind.
-            await asyncio.shield(_finish(state, session))
+            await asyncio.shield(spawn(_finish(state, session), name="call-cleanup"))
 
 
 async def _finish(state, session) -> None:

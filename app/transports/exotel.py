@@ -25,6 +25,7 @@ import logging
 
 from fastapi import APIRouter, Request, Response, WebSocket, WebSocketDisconnect
 
+from ..background import spawn
 from ..db import DEFAULT_CLINIC, Call, current_clinic
 from ..phone import normalize_phone
 from .base import Transport
@@ -153,7 +154,7 @@ async def exotel_stream(ws: WebSocket) -> None:
         log.exception("Exotel stream error")
     finally:
         if session:
-            await asyncio.shield(_finish(state, session))
+            await asyncio.shield(spawn(_finish(state, session), name="call-cleanup"))
 
 
 async def _finish(state, session) -> None:

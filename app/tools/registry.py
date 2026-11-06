@@ -1,13 +1,13 @@
 """Tools the receptionist agent can call (OpenAI function-calling schema + executors)."""
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
 from typing import Any
 
+from ..background import spawn
 from ..business import Business
 from ..db import as_utc
 from ..knowledge import KnowledgeStore
@@ -433,7 +433,7 @@ class ToolExecutor:
         sms_sent = False
         if phone:
             # Fire-and-forget so the caller doesn't wait on the SMS API.
-            asyncio.create_task(self.twilio.send_message(phone, sms))
+            spawn(self.twilio.send_message(phone, sms))
             sms_sent = self.twilio.enabled
         return {"booked": True, "appointment_id": appt.id, "when": when,
                 "provider": provider.name if provider else None, "fee": fee["label"], "confirmation_sms": sms_sent,
@@ -534,7 +534,7 @@ class ToolExecutor:
         provider = self.biz.provider(provider_id) if provider_id else None
         when = self._describe(new)["when"]
         if new.phone:
-            asyncio.create_task(self.twilio.send_message(
+            spawn(self.twilio.send_message(
                 new.phone, f"{self.biz.name}: Your appointment for {new.patient_name} has been moved to {when}"
                            f"{' with ' + provider.name if provider else ''}. Ref {new.id}."))
         return {"rescheduled": True, "appointment_id": new.id, "previous_appointment_cancelled": old.id,
@@ -613,7 +613,7 @@ class ToolExecutor:
                    f" for {token.patient_name} with {pos['doctor']}, "
                    f"{pos['weekday']} {pos['session']}." + (f" Please arrive by {arrive}." if arrive and arrive != "now"
                                                              else "") + f" Patient no. {patient.number}.")
-            asyncio.create_task(self.twilio.send_message(phone, sms))
+            spawn(self.twilio.send_message(phone, sms))
             sms_sent = self.twilio.enabled
         return {"issued": True, "already_had_token": not created, **pos,
                 "patient_number": patient.number if patient else None, "confirmation_sms": sms_sent,
@@ -688,7 +688,7 @@ class ToolExecutor:
         to = self.biz.staff_alert_phone or self.biz.handoff_number
         if to and self.twilio.enabled:
             msg = f"VaaniDesk follow-up ({kind}): {patient_name or ''} {phone or ''} - {reason}"[:300]
-            asyncio.create_task(self.twilio.send_message(to, msg))
+            spawn(self.twilio.send_message(to, msg))
         return True
 
     async def request_callback(self, ctx: ToolContext, args: dict) -> dict:
