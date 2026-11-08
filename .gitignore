@@ -21,3 +21,5 @@ evals/retrieval_results.json
 *.pem
 *.key
 backups/
+
+.coverage
