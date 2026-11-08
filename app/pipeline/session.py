@@ -98,6 +98,7 @@ class CallSession:
         self._latencies: list[float] = []
         self._first_audio_at = 0.0
         self.interruptions = 0
+        self._resume_task: asyncio.Task | None = None
         self.closed = asyncio.Event()
 
     # ------------------------------------------------------------------ lifecycle
@@ -130,7 +131,7 @@ class CallSession:
             return
         self.closed.set()
         current = asyncio.current_task()
-        for task in [self._response, self._turn_timer, *self._tasks]:
+        for task in [self._response, self._turn_timer, self._resume_task, *self._tasks]:
             if task and task is not current and not task.done():
                 task.cancel()
         if self.stt_stream:
@@ -168,13 +169,15 @@ class CallSession:
         if ev.kind == "speech_started":
             if self._turn_timer and not self._turn_timer.done():
                 self._turn_timer.cancel()  # caller is still talking: keep collecting
-            if self.agent_busy:
-                await self._barge_in()
+            # Voice activity alone (a cough, a door, the agent's own voice from a speaker) is not an
+            # interruption: we stop speaking only once the caller's words are recognised (below).
         elif ev.kind == "interim":
             await self.t.send_event({"type": "user", "text": " ".join(self._user_buf + [ev.text]), "final": False})
             if self.agent_busy and len(ev.text.split()) >= 2:
                 await self._barge_in()
         elif ev.kind == "final":
+            if self.agent_busy and ev.text.strip():
+                await self._barge_in()
             self._user_buf.append(ev.text)
             self._maybe_switch_language(ev.text, ev.language)
             await self.t.send_event({"type": "user", "text": " ".join(self._user_buf), "final": False})
@@ -239,6 +242,36 @@ class CallSession:
         await self.t.clear_audio()
         await self.t.send_event({"type": "interrupted"})
         log.info("[%s] barge-in", self.ctx.call_id)
+        if self._resume_task and not self._resume_task.done():
+            self._resume_task.cancel()
+        self._resume_task = asyncio.create_task(self._resume_if_silent())
+
+    #: after an interruption, how long to wait for the caller's words before carrying on
+    RESUME_AFTER_S = 3.0
+
+    def _answer_pending(self) -> bool:
+        """A tool ran but the caller never heard the answer (only a cut-off filler was spoken since)."""
+        for m in reversed(self.messages):
+            if m["role"] == "tool":
+                return True
+            interrupted = m["role"] == "assistant" and (m.get("content") or "").endswith("[interrupted by caller]")
+            if not interrupted or m.get("tool_calls"):
+                return False
+        return False
+
+    async def _resume_if_silent(self) -> None:
+        """An interruption with no words after it (noise, echo) must not leave the caller in silence,
+        above all when a tool already ran (e.g. the booking is made) but its answer wasn't spoken yet."""
+        await asyncio.sleep(self.RESUME_AFTER_S)
+        if self.closed.is_set() or self._user_buf or (self._response and not self._response.done()):
+            return
+        if self._turn_timer and not self._turn_timer.done():
+            return
+        if self._answer_pending():
+            log.info("[%s] interruption without words: finishing the answer", self.ctx.call_id)
+            self._response = asyncio.create_task(self._respond(None))
+        else:
+            await self.t.send_event({"type": "listening"})
 
     # ------------------------------------------------------------------ response
     async def _play(self, tts: TTSStream, first_audio: asyncio.Event) -> None:
@@ -262,13 +295,14 @@ class CallSession:
             finally:
                 await tts.close()
 
-    async def _respond(self, user_text: str) -> None:
+    async def _respond(self, user_text: str | None) -> None:
         t0 = self._turn_end_at or time.monotonic()
         self._repair_history()
         # Tell the model the reply language in its instructions (not in the caller's message,
         # where models sometimes repeat it out loud).
         self.messages[0]["content"] = self._base_prompt + language_rule(self.ctx.language)
-        self.messages.append({"role": "user", "content": user_text})
+        if user_text is not None:  # None = carry on after an interruption without words
+            self.messages.append({"role": "user", "content": user_text})
         chunker = SentenceChunker()
         notes = ControlNoteFilter()
         tts: TTSStream | None = None
@@ -331,12 +365,14 @@ class CallSession:
 
                 for tc in tool_calls:
                     result = await self.d.tools.run(self.ctx, tc.name, tc.arguments)
+                    # Record the result first: an interruption during the awaits below must not lose it
+                    # (the booking is real even if the caller cut in while it was being announced).
+                    self.messages.append({"role": "tool", "tool_call_id": tc.id,
+                                          "content": json.dumps(result, ensure_ascii=False, default=str)})
                     log.info("[%s] tool %s(%s) -> %s", self.ctx.call_id, tc.name, tc.arguments, result)
                     await self.t.send_event({"type": "tool", "name": tc.name, "args": tc.arguments, "result": result})
                     await self.d.db.add_turn(self.ctx.call_id, "tool", f"{tc.name}", meta={"args": tc.arguments,
                                                                                          "result": result})
-                    self.messages.append({"role": "tool", "tool_call_id": tc.id,
-                                          "content": json.dumps(result, ensure_ascii=False, default=str)})
 
             if tts is not None:
                 await tts.finish()
@@ -411,7 +447,7 @@ class CallSession:
         can_transfer = self.ctx.channel == "phone" and bool(self.d.business.handoff_number)
         message = outage_message(self.ctx.language, "transfer" if can_transfer else "callback")
         await self.d.tools.add_follow_up(
-            "outage", f"AI failed mid-call ({type(exc).__name__}). Caller's last words: {user_text[:300]}",
+            "outage", f"AI failed mid-call ({type(exc).__name__}). Caller's last words: {(user_text or '')[:300]}",
             call_id=self.ctx.call_id, phone=self.ctx.caller_phone)
         await self.t.send_event({"type": "assistant", "text": message, "final": True})
         await self.d.db.add_turn(self.ctx.call_id, "assistant", message, language=self.ctx.language,

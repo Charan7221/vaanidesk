@@ -84,16 +84,45 @@ async def test_barge_in_cancels_speech(db, business, executor):
 
     await say(stt, "Tell me about the clinic")
     await wait_for(lambda: transport.of_type("assistant") and not transport.of_type("assistant")[-1].get("final"))
-    await stt.push(STTEvent("speech_started"))  # caller interrupts
-    await wait_for(lambda: transport.of_type("interrupted"))
+    before = len(transport.of_type("interrupted"))
+    await stt.push(STTEvent("speech_started"))  # a sound alone doesn't stop the agent...
+    await asyncio.sleep(0.1)
+    assert len(transport.of_type("interrupted")) == before
+    await stt.push(STTEvent("interim", text="wait wait"))  # ...the caller's words do
+    await wait_for(lambda: len(transport.of_type("interrupted")) > before)
     assert transport.cleared >= 1
-    assert session.interruptions == 1
+    assert session.interruptions >= 1
     await wait_for(lambda: session._response.done())
 
     await say(stt, "Actually, what are your timings?")
     await wait_for(lambda: any("go ahead" in e.get("text", "") for e in transport.of_type("assistant")))
     # interrupted reply is kept in history, marked as interrupted
     assert any("[interrupted by caller]" in (m.get("content") or "") for m in llm.calls[-1])
+    await session.close()
+
+
+async def test_interruption_without_words_still_gives_the_booking_answer(db, business, executor, monday):
+    """Noise cut the agent off after the booking was made: it must still tell the caller, not go silent."""
+    d = monday.isoformat()
+    llm = FakeLLM([
+        tool("book_appointment", "c1", patient_name="Sai Charan", date=d, time="17:00", provider_id="dr-rao"),
+        *[text("Your appointment is booked for five o'clock.")] * 3,  # whichever reply survives the cut
+    ], delay=0.3)
+    session, transport, stt = await make_session(db, business, executor, llm)
+    session.RESUME_AFTER_S = 0.2
+    await wait_for(lambda: session._response.done(), timeout=5)
+
+    await say(stt, "Book Dr. Rao Monday five pm, name Sai Charan")
+    await wait_for(lambda: transport.of_type("tool"), timeout=5)
+    before = len(transport.of_type("interrupted"))
+    await stt.push(STTEvent("interim", text="uh hmm"))  # recognised as words, but never becomes a sentence
+    await wait_for(lambda: len(transport.of_type("interrupted")) > before)
+    await wait_for(lambda: any(e.get("final") and "booked for five" in e.get("text", "")
+                               for e in transport.of_type("assistant")), timeout=5)
+    last = llm.calls[-1]
+    assert last[-1]["role"] != "user"  # carried on from the booking result, no invented user turn
+    tool_msgs = [m for m in last if m["role"] == "tool"]
+    assert '"booked": true' in tool_msgs[-1]["content"]  # the real result, not "interrupted by caller"
     await session.close()
 
 

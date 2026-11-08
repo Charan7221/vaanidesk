@@ -219,7 +219,9 @@
         el.className = ev.latency_ms < 1500 ? "ok" : ev.latency_ms < 2500 ? "warn" : "bad";
         break;
       }
-      case "interrupted": if (botBubble) { setBubble(botBubble, botBubble.textContent + " …", true); botBubble = null; } break;
+      case "interrupted": if (botBubble) { setBubble(botBubble, botBubble.textContent + " …", true); botBubble = null; }
+        hideTyping(); if (inCall && mode === "voice") setState("listening", "Listening…"); break;
+      case "listening": hideTyping(); if (inCall) setState(mode === "voice" ? "listening" : "idle", mode === "voice" ? "Listening…" : "Ready"); break;
       case "clear": stopPlayback(); break;
       case "hangup": note("The conversation has ended."); break;
       case "transfer": break;

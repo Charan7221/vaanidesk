@@ -135,6 +135,13 @@ class Settings(BaseSettings):
         return out
 
     @model_validator(mode="after")
+    def _fast_gemini(self) -> Settings:
+        # Gemini 3 models think before answering unless told not to: 3-6 s of silence per reply on a call.
+        if not self.llm_reasoning_effort and self.openai_model.startswith("gemini-3"):
+            self.llm_reasoning_effort = "minimal"
+        return self
+
+    @model_validator(mode="after")
     def _hosted_url(self) -> Settings:
         # On Render the public URL is provided automatically.
         render_url = os.environ.get("RENDER_EXTERNAL_URL")
