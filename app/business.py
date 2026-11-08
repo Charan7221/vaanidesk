@@ -72,6 +72,14 @@ class ReminderConfig(BaseModel):
     send_at: str = "18:00"  # local time, the evening before the visit
 
 
+class NotificationConfig(BaseModel):
+    """How patients hear from the clinic: booking/token confirmations, changes, cancellations, reminders."""
+
+    confirmations: bool = True  # send a message after every booking / token / change / cancellation
+    phone_channels: list[str] = Field(default_factory=lambda: ["whatsapp", "sms"])  # try in order, stop at first sent
+    email: bool = True  # also email patients who gave an email address
+
+
 class Business(BaseModel):
     name: str
     assistant_name: str = "Vaani"
@@ -107,6 +115,7 @@ class Business(BaseModel):
     consent_notice: bool = True
     transcript_retention_days: int = 90  # call transcripts and summaries are deleted after this (0 = keep)
     reminders: ReminderConfig = Field(default_factory=ReminderConfig)
+    notifications: NotificationConfig = Field(default_factory=NotificationConfig)
     staff_alert_phone: str = ""  # SMS/WhatsApp for new follow-ups (defaults to handoff_number)
     departments: list[Department] = Field(default_factory=list)
     fees: FeePolicy = Field(default_factory=FeePolicy)

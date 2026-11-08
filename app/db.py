@@ -163,6 +163,7 @@ class Appointment(ClinicScoped, Base):
     call_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     patient_name: Mapped[str] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(160), nullable=True)
     provider_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     start: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -200,6 +201,21 @@ class FollowUp(ClinicScoped, Base):
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class MessageLog(ClinicScoped, Base):
+    """Every WhatsApp / SMS / email sent to a patient or staff member, and whether it went through."""
+
+    __tablename__ = "message_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(32))  # booking | reschedule | cancel | token | reminder | manual | ...
+    channel: Mapped[str] = mapped_column(String(16))  # whatsapp | sms | email | none
+    to: Mapped[str] = mapped_column(String(160))
+    status: Mapped[str] = mapped_column(String(16))  # sent | failed | not_configured
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    preview: Mapped[str] = mapped_column(Text, default="")
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class KnowledgeChunk(ClinicScoped, Base):
@@ -242,6 +258,7 @@ class Patient(ClinicScoped, Base):
     number: Mapped[int] = mapped_column(Integer, unique=True)  # patient number spoken to the caller, e.g. 1001
     name: Mapped[str] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(160), nullable=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
@@ -260,6 +277,7 @@ class OpdToken(ClinicScoped, Base):
     patient_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     patient_name: Mapped[str] = mapped_column(String(120))
     phone: Mapped[str | None] = mapped_column(String(32), nullable=True, index=True)
+    email: Mapped[str | None] = mapped_column(String(160), nullable=True)
     age: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="call")  # call | staff
@@ -531,3 +549,16 @@ class Database:
             await s.execute(Call.__table__.update().where(Call.id.in_(old_ids)).values(summary=None))
             await s.commit()
             return len(old_ids)
+
+    # ---------- messages ----------
+    @shielded
+    async def log_message(self, kind: str, channel: str, to: str, status: str, preview: str,
+                          error: str | None = None) -> None:
+        async with self.session() as s:
+            s.add(MessageLog(kind=kind, channel=channel, to=to, status=status, preview=preview[:500],
+                             error=(error or None) and error[:500]))
+            await s.commit()
+
+    async def messages(self, limit: int = 50) -> list[MessageLog]:
+        async with self.session() as s:
+            return list((await s.execute(select(MessageLog).order_by(MessageLog.at.desc()).limit(limit))).scalars())

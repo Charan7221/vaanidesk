@@ -56,7 +56,7 @@ async def _reminder_loop(container, every_s: int = 600) -> None:
         for clinic_id, tenant in list(container.tenants.items()):
             token = current_clinic.set(clinic_id)
             try:
-                await asyncio.shield(send_reminders(container.db, tenant.business, container.twilio))
+                await asyncio.shield(send_reminders(container.db, tenant.business, container.notifier))
             except Exception:
                 log.exception("Reminders failed for %s", clinic_id)
             finally:
@@ -163,7 +163,8 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         c = app.state.container
         return {"status": "ok", "business": c.business.name, "clinics": len(c.tenants),
                 "active_calls": len(c.active_sessions), "missing_keys": c.settings.missing_keys(),
-                "stt": c.settings.stt_provider, "llm": c.settings.openai_model, "twilio": c.settings.twilio_enabled}
+                "stt": c.settings.stt_provider, "llm": c.settings.openai_model, "twilio": c.settings.twilio_enabled,
+                "messaging": c.notifier.status()}
 
     @app.get("/api/public-config")
     async def public_config(request: Request, clinic: str | None = None):

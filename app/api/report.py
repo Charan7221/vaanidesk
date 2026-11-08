@@ -100,6 +100,6 @@ async def send_now(request: Request) -> dict:
     from ..auth import audit
     from ..tools.reminders import send_reminders
     state = request.app.state.container
-    result = await send_reminders(state.db, state.business, state.twilio, force=True)
+    result = await send_reminders(state.db, state.business, state.notifier, force=True)
     await audit(request, "reminders.send_now", **result)
     return result

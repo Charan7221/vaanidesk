@@ -18,6 +18,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from ..background import spawn
 from ..db import DEFAULT_CLINIC, current_clinic
+from ..messaging import valid_email
 from ..phone import validate_phone
 from .base import Transport
 
@@ -104,6 +105,7 @@ async def browser_call(ws: WebSocket) -> None:
                 lang = data.get("language") if data.get("language") in state.business.languages else None
                 session = await state.new_session(transport, channel="browser", language=lang,
                                                   caller=validate_phone(data.get("phone"))[0])
+                session.ctx.caller_email = valid_email(data.get("email"))
                 await transport.send_event({"type": "ready", "call_id": session.ctx.call_id})
                 await session.start()
             elif kind == "text" and session and data.get("text", "").strip():

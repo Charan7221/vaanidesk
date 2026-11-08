@@ -69,6 +69,20 @@ class Settings(BaseSettings):
     twilio_whatsapp_from: str = ""  # e.g. whatsapp:+14155238886 (optional)
     twilio_validate_signature: bool = True
 
+    # --- WhatsApp Cloud API (Meta), an alternative to Twilio WhatsApp; cheaper in India ---
+    meta_wa_token: str = ""  # permanent access token of the WhatsApp Business app
+    meta_wa_phone_id: str = ""  # "Phone number ID" in WhatsApp Manager
+    meta_wa_template: str = ""  # approved template with one body variable {{1}} (needed outside the 24-hour window)
+    meta_wa_template_lang: str = "en"
+
+    # --- Email (any SMTP server: Gmail app password, Zoho, SendGrid, Amazon SES, ...) ---
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_from: str = ""  # e.g. "Sunrise Clinic <appointments@sunriseclinic.in>"
+    smtp_starttls: bool = True
+
     # --- Exotel (Indian phone numbers; see app/transports/exotel.py for the call flow) ---
     exotel_stream_secret: str = ""  # password in the Voicebot URL: wss://vaanidesk:<secret>@host/exotel/stream
 

@@ -11,6 +11,7 @@ from ..background import spawn
 from ..business import Business
 from ..db import as_utc
 from ..knowledge import KnowledgeStore
+from ..messaging import Message, Notifier, valid_email
 from ..phone import validate_phone
 from .calendar import LocalCalendar, SlotUnavailable
 from .opd import OpdDesk, OpdError
@@ -27,6 +28,7 @@ class ToolContext:
     call_id: str
     channel: str  # "phone" | "browser"
     caller_phone: str | None = None
+    caller_email: str | None = None  # given on the web chat (optional)
     external_call_id: str | None = None  # Twilio CallSid
     language: str = "en-IN"
     pending_action: str | None = None  # "transfer" | "hangup" — executed after the agent finishes speaking
@@ -108,6 +110,8 @@ TOOL_SCHEMAS: list[dict] = [
                     "phone": {"type": "string", "description": "Mobile number the caller gave, digits only "
                                                               "(e.g. 9346968532). Omit if the caller's number is "
                                                               "already known."},
+                    "email": {"type": "string", "description": "patient's email, ONLY if they want the confirmation by "
+                                                              "email too (read it back letter by letter first)"},
                     "second_appointment": {"type": "boolean",
                                            "description": "true only if the caller explicitly wants an ADDITIONAL "
                                                           "appointment for the same patient in this call"},
@@ -179,6 +183,8 @@ TOOL_SCHEMAS: list[dict] = [
                     "reason": {"type": "string", "description": "short reason for the visit, if mentioned"},
                     "phone": {"type": "string", "description": "mobile number the caller gave, digits only. Omit if "
                                                               "the caller's number is already known."},
+                    "email": {"type": "string", "description": "patient's email, ONLY if they want the confirmation by "
+                                                              "email too (read it back letter by letter first)"},
                 },
                 "required": ["provider_id", "patient_name"],
             },
@@ -275,12 +281,14 @@ def _fmt_time(dt: datetime) -> str:
 
 class ToolExecutor:
     def __init__(self, business: Business, calendar: LocalCalendar, twilio: TwilioClient,
-                 knowledge: KnowledgeStore | None = None, opd: OpdDesk | None = None):
+                 knowledge: KnowledgeStore | None = None, opd: OpdDesk | None = None,
+                 notifier: Notifier | None = None):
         self.biz = business
         self.cal = calendar
         self.twilio = twilio
         self.knowledge = knowledge
         self.opd = opd or OpdDesk(calendar.db, business)
+        self.notifier = notifier or Notifier(twilio.s, twilio, calendar.db)
         self._handlers: dict[str, Callable[[ToolContext, dict], Awaitable[dict]]] = {
             "search_clinic_knowledge": self.search_clinic_knowledge,
             "find_doctor": self.find_doctor,
@@ -387,6 +395,10 @@ class ToolExecutor:
                 return {"booked": False, "reason": "phone number missing",
                         "instruction": "Ask for the caller's mobile number, read it back to confirm, then book."}
 
+        email, problem = self._email(ctx, args)
+        if problem:
+            return {"booked": False, **problem}
+
         # --- the same call re-booking its own slot (e.g. correcting the name) updates that booking
         for appt_id in ctx.booked_ids:
             existing = await self.cal.db.get_appointment(appt_id)
@@ -427,16 +439,13 @@ class ToolExecutor:
         local = as_utc(appt.start).astimezone(self.biz.tz)
         when = local.strftime("%a %d %b, %I:%M %p")
         pending = self.biz.pilot_mode
-        sms = (f"{self.biz.name}: Appointment {'request received' if pending else 'confirmed'} for "
-               f"{appt.patient_name} with {provider.name if provider else 'our doctor'} on {when}. Ref {appt.id}. "
-               + ("The clinic will confirm shortly." if pending else f"Address: {self.biz.address}"))
-        sms_sent = False
-        if phone:
-            # Fire-and-forget so the caller doesn't wait on the SMS API.
-            spawn(self.twilio.send_message(phone, sms))
-            sms_sent = self.twilio.enabled
+        if email:
+            await self.cal.db.update_appointment(appt.id, email=email)
+        appt.confirmed = False if pending else appt.confirmed
+        channels = self._notify("booking", self._appt_message("booked", appt, when, provider, fee["label"]), phone, email)
         return {"booked": True, "appointment_id": appt.id, "when": when,
-                "provider": provider.name if provider else None, "fee": fee["label"], "confirmation_sms": sms_sent,
+                "provider": provider.name if provider else None, "fee": fee["label"],
+                "confirmation_sms": bool(channels), "confirmation_channels": channels,
                 **({"pending_confirmation": True} if pending else {})}
 
     async def _record_fee(self, appt, name: str, phone: str | None, provider_id: str | None, day: date) -> dict:
@@ -475,6 +484,48 @@ class ToolExecutor:
             return {"appointments": [], "instruction": hint}
         return {"appointments": [self._describe(a) for a in appts[:5]]}
 
+    def _email(self, ctx: ToolContext, args: dict) -> tuple[str | None, dict | None]:
+        """The patient's email for confirmations: spoken/typed in this request, or given at the start of a chat."""
+        raw = (args.get("email") or "").strip()
+        if raw:
+            email = valid_email(raw)
+            if not email:
+                return None, {"reason": "invalid email address",
+                              "instruction": "Tell the caller the email address doesn't look right and ask them to "
+                                             "spell it again, then read it back. Or continue without email."}
+            return email, None
+        return ctx.caller_email, None
+
+    def _notify(self, kind: str, msg: Message, phone: str | None, email: str | None) -> list[str]:
+        """Send in the background (the caller doesn't wait). Returns the channels that will be tried."""
+        if not (phone or email) or not self.biz.notifications.confirmations:
+            return []
+        status = self.notifier.status()
+        channels = [c for c in self.biz.notifications.phone_channels if status.get(c)][:1] if phone else []
+        if email and self.biz.notifications.email and status.get("email"):
+            channels.append("email")
+        spawn(self.notifier.notify_patient(self.biz, kind=kind, msg=msg, phone=phone, email=email),
+              name=f"notify-{kind}")
+        return channels
+
+    def _appt_message(self, kind: str, appt, when: str, provider, fee_label: str | None = None) -> Message:
+        doctor = provider.name if provider else "our doctor"
+        pending = appt.confirmed is False
+        head = {"booked": "Appointment request received" if pending else "Appointment confirmed",
+                "moved": "Appointment moved", "cancelled": "Appointment cancelled"}[kind]
+        text = {"booked": f"{self.biz.name}: {head} for {appt.patient_name} with {doctor} on {when}. Ref {appt.id}. "
+                          + ("The clinic will confirm shortly." if pending else f"Address: {self.biz.address}"),
+                "moved": f"{self.biz.name}: Your appointment for {appt.patient_name} has been moved to {when} "
+                         f"with {doctor}. Ref {appt.id}.",
+                "cancelled": f"{self.biz.name}: The appointment for {appt.patient_name} on {when} with {doctor} "
+                             f"is cancelled. Call {self.biz.phone or self.biz.handoff_number} to book again."}[kind]
+        return Message(text=text, subject=f"{head} · {self.biz.name}", title=head, lines=[
+            ("Patient", appt.patient_name), ("Doctor", doctor), ("When", when), ("Fee", fee_label or ""),
+            ("Reference", appt.id), ("Clinic", self.biz.name), ("Address", self.biz.address),
+            ("Phone", self.biz.phone)],
+            footer="The clinic will confirm your request shortly." if pending and kind == "booked" else
+            "To cancel or change, reply to this message or call the clinic.")
+
     def _describe(self, a) -> dict:
         return {"appointment_id": a.id, "patient_name": a.patient_name, "provider_id": a.provider_id,
                 "when": as_utc(a.start).astimezone(self.biz.tz).strftime("%a %d %b, %I:%M %p")}
@@ -500,6 +551,9 @@ class ToolExecutor:
             return {"cancelled": False, **problem}
         await self.cal.cancel(appt.id)
         ctx.outcome = "cancelled"
+        provider = self.biz.provider(appt.provider_id) if appt.provider_id else None
+        self._notify("cancel", self._appt_message("cancelled", appt, self._describe(appt)["when"], provider),
+                     appt.phone, appt.email)
         return {"cancelled": True, "appointment_id": appt.id}
 
     async def reschedule_appointment(self, ctx: ToolContext, args: dict) -> dict:
@@ -525,7 +579,7 @@ class ToolExecutor:
                     "alternatives": [_fmt_time(s) for s in nearest],
                     "note": "The original appointment is unchanged."}
         await self.cal.db.update_appointment(new.id, patient_id=old.patient_id, fee_type=old.fee_type,
-                                             fee_amount=old.fee_amount)
+                                             fee_amount=old.fee_amount, email=old.email)
         await self.cal.cancel(old.id)
         if old.id in ctx.booked_ids:
             ctx.booked_ids.remove(old.id)
@@ -533,10 +587,7 @@ class ToolExecutor:
         ctx.outcome = "booked"
         provider = self.biz.provider(provider_id) if provider_id else None
         when = self._describe(new)["when"]
-        if new.phone:
-            spawn(self.twilio.send_message(
-                new.phone, f"{self.biz.name}: Your appointment for {new.patient_name} has been moved to {when}"
-                           f"{' with ' + provider.name if provider else ''}. Ref {new.id}."))
+        self._notify("reschedule", self._appt_message("moved", new, when, provider), new.phone, old.email)
         return {"rescheduled": True, "appointment_id": new.id, "previous_appointment_cancelled": old.id,
                 "when": when, "provider": provider.name if provider else None}
 
@@ -592,6 +643,9 @@ class ToolExecutor:
         if age is not None and not 0 <= age <= 120:
             age = None
         day = self._parse_date(args["date"]) if args.get("date") else self.biz.now().date()
+        email, problem = self._email(ctx, args)
+        if problem:
+            return {"issued": False, **problem}
 
         try:
             token, created = await self.opd.issue(provider_id=provider_id, day=day, patient_name=name, phone=phone,
@@ -606,17 +660,28 @@ class ToolExecutor:
         ctx.outcome = "token"
         pos = await self.opd.position(token)
         patient = await self.opd.patient(token.patient_id)
-        sms_sent = False
-        if created and phone:
+        channels: list[str] = []
+        if created:
+            if email:
+                await self.opd.set_email(token.id, email)
             arrive = pos.get("please_arrive_by")
-            sms = (f"{self.biz.name}: OPD token {token.number}{' (request, the clinic will confirm)' if token.confirmed is False else ''}"
+            pending = token.confirmed is False
+            head = "OPD token requested" if pending else f"OPD token {token.number}"
+            sms = (f"{self.biz.name}: OPD token {token.number}{' (request, the clinic will confirm)' if pending else ''}"
                    f" for {token.patient_name} with {pos['doctor']}, "
                    f"{pos['weekday']} {pos['session']}." + (f" Please arrive by {arrive}." if arrive and arrive != "now"
                                                              else "") + f" Patient no. {patient.number}.")
-            spawn(self.twilio.send_message(phone, sms))
-            sms_sent = self.twilio.enabled
+            msg = Message(text=sms, subject=f"{head} · {self.biz.name}", title=head, lines=[
+                ("Token", str(token.number)), ("Patient", token.patient_name), ("Doctor", pos["doctor"]),
+                ("Day", f"{pos['weekday']} {token.day}"), ("Session", pos["session"]),
+                ("Please arrive by", arrive if arrive and arrive != "now" else ""), ("Fee", pos.get("fee", "")),
+                ("Patient no.", str(patient.number) if patient else ""), ("Clinic", self.biz.name),
+                ("Address", self.biz.address)],
+                footer="Times are estimates; patients are seen in token order.")
+            channels = self._notify("token", msg, phone, email)
         return {"issued": True, "already_had_token": not created, **pos,
-                "patient_number": patient.number if patient else None, "confirmation_sms": sms_sent,
+                "patient_number": patient.number if patient else None, "confirmation_sms": bool(channels),
+                "confirmation_channels": channels,
                 **({"pending_confirmation": True} if token.confirmed is False else {}),
                 "instruction": "Tell the caller the token number, the doctor, the session and the time to arrive by "
                                "(say it is an estimate). If already_had_token is true, say they already have this "
@@ -663,6 +728,10 @@ class ToolExecutor:
                                    "when taking it and use check_opd_status with it."}
         await self.opd.set_token_status(token.id, "cancelled")
         ctx.outcome = "cancelled"
+        text = f"{self.biz.name}: OPD token {token.number} for {token.patient_name} on {token.day} is cancelled."
+        self._notify("cancel", Message(text=text, subject=f"OPD token cancelled · {self.biz.name}",
+                                       title="OPD token cancelled", lines=[("Token", str(token.number)),
+                                       ("Patient", token.patient_name), ("Day", token.day)]), token.phone, token.email)
         return {"cancelled": True, "token_number": token.number}
 
     async def search_clinic_knowledge(self, ctx: ToolContext, args: dict) -> dict:
@@ -686,9 +755,9 @@ class ToolExecutor:
         if item is None:
             return False
         to = self.biz.staff_alert_phone or self.biz.handoff_number
-        if to and self.twilio.enabled:
-            msg = f"VaaniDesk follow-up ({kind}): {patient_name or ''} {phone or ''} - {reason}"[:300]
-            spawn(self.twilio.send_message(to, msg))
+        if to and self.notifier.enabled:
+            text = f"VaaniDesk follow-up ({kind}): {patient_name or ''} {phone or ''} - {reason}"[:300]
+            spawn(self.notifier.send(kind="staff_alert", msg=Message(text=text), phone=to), name="staff-alert")
         return True
 
     async def request_callback(self, ctx: ToolContext, args: dict) -> dict:

@@ -320,3 +320,12 @@ body.shell header.top nav a.sb-link { margin-left: 0; color: var(--text); font-s
 body.shell header.top nav a.sb-link[aria-current="page"] { color: var(--accent-ink); }
 .sb-clinic span { display: block; }
 .sb-toggle svg { width: 22px; height: 22px; display: block; }
+
+/* messages */
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.panel-head h2 { margin: 0; }
+.msg-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-sm { font-size: 12px; padding: 5px 10px; border-radius: 999px; background: var(--panel-2); text-align: left; }
+#msgDialog textarea, .setup textarea { width: 100%; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
+#msgDialog .field input { width: 100%; }
+.badge.off { background: var(--panel-2); color: var(--muted); }

@@ -343,6 +343,15 @@ class OpdDesk:
                 await s.commit()
             return token
 
+    async def set_email(self, token_id: str, email: str) -> None:
+        async with self.db.session() as s:
+            token = await s.get(OpdToken, token_id)
+            if token:
+                token.email = email
+                if token.patient_id and (patient := await s.get(Patient, token.patient_id)):
+                    patient.email = email
+                await s.commit()
+
     async def set_paid(self, token_id: str, paid: bool) -> OpdToken | None:
         async with self.db.session() as s:
             token = await s.get(OpdToken, token_id)

@@ -13,6 +13,7 @@ from sqlalchemy import select
 
 from ..business import Business
 from ..db import Appointment, Call, Database, OpdToken, as_utc, utcnow
+from ..messaging import Message
 
 log = logging.getLogger(__name__)
 
@@ -55,14 +56,14 @@ async def _languages(db: Database, call_ids: set[str]) -> dict[str, str]:
     return {cid: lang for cid, lang in rows if lang}
 
 
-async def send_reminders(db: Database, biz: Business, twilio, now: datetime | None = None,
+async def send_reminders(db: Database, biz: Business, notifier, now: datetime | None = None,
                          force: bool = False) -> dict:
     """Send tomorrow's reminders for the current clinic. Returns counts (sent / failed / pending)."""
     now = now or biz.now()
     out = {"sent": 0, "failed": 0, "skipped_no_phone": 0}
     if not force and not due(biz, now):
         return out
-    if not twilio.enabled:
+    if not notifier.enabled:
         out["not_configured"] = True
         return out
     tomorrow: date = now.date() + timedelta(days=1)
@@ -93,12 +94,19 @@ async def send_reminders(db: Database, biz: Business, twilio, now: datetime | No
         jobs.append((OpdToken, t, "token", {"name": t.patient_name, "doctor": doctor(t.provider_id),
                                             "number": t.number, "session": when}))
     for model, item, kind, fields in jobs:
-        if not item.phone:
+        if not item.phone and not item.email:
             out["skipped_no_phone"] += 1
             continue
         lang = langs.get(item.call_id or "", biz.languages[0] if biz.languages else "en-IN")
         text = TEMPLATES.get(lang, TEMPLATES["en-IN"])[kind].format(**common, **fields)
-        ok = await twilio.send_message(item.phone, text)
+        title = "Reminder: your visit tomorrow"
+        msg = Message(text=text, subject=f"{title} · {biz.name}", title=title, lines=[
+            ("Patient", fields["name"]), ("Doctor", fields["doctor"]), ("Day", common["day"]),
+            ("Time", fields.get("time", "")), ("Token", str(fields.get("number", "")) if kind == "token" else ""),
+            ("Session", fields.get("session", "")), ("Clinic", biz.name), ("Address", biz.address)],
+            footer=f"To cancel or change, call {common['phone']}.")
+        ok = bool((await notifier.notify_patient(biz, kind="reminder", msg=msg, phone=item.phone,
+                                                 email=item.email))["sent"])
         if ok:
             async with db.session() as s:
                 row = await s.get(model, item.id)

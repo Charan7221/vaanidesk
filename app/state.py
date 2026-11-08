@@ -19,6 +19,7 @@ from .business import Business, load_business
 from .config import Settings
 from .db import DEFAULT_CLINIC, Clinic, Database, current_clinic
 from .knowledge import KnowledgeStore, OpenAIEmbedder
+from .messaging import Notifier
 from .pipeline.session import CallSession, SessionDeps
 from .providers import build_llm, build_stt, build_tts
 from .providers.base import LLMProvider, STTProvider, TTSProvider
@@ -47,6 +48,7 @@ class AppState:
                  twilio: TwilioClient, embedder, uses_custom_providers: bool = False):
         self.settings, self.db, self.stt, self.llm, self.tts = settings, db, stt, llm, tts
         self.twilio, self.embedder = twilio, embedder
+        self.notifier = Notifier(settings, twilio, db)  # WhatsApp / SMS / email to patients and staff
         self.uses_custom_providers = uses_custom_providers  # True when providers were injected (tests / evals)
         self.tenants: dict[str, Tenant] = {}
         self.active_sessions: dict[str, CallSession] = {}
@@ -76,8 +78,8 @@ class AppState:
         else:
             calendar = LocalCalendar(self.db, business)
         knowledge = KnowledgeStore(self.db, self.embedder, top_k=self.settings.rag_top_k)
-        tenant = Tenant(clinic_id, business, calendar, ToolExecutor(business, calendar, self.twilio, knowledge),
-                        knowledge)
+        tenant = Tenant(clinic_id, business, calendar,
+                        ToolExecutor(business, calendar, self.twilio, knowledge, notifier=self.notifier), knowledge)
         self.tenants[clinic_id] = tenant
         return tenant
 

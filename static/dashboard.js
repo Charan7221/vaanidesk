@@ -49,8 +49,12 @@
         <td>${esc(a.start_local)}</td>
         <td>${esc(a.patient_name)}<div class="small muted">${esc(a.phone || "")}</div></td>
         <td>${esc(a.provider || "")}</td>
-        <td>${a.status === "booked" ? `<button data-cancel="${esc(a.id)}">Cancel</button>` : `<span class="badge warn">${esc(a.status)}</span>`}</td>
+        <td class="nowrap">${a.status === "booked" ? `<button class="mini" data-msg="${esc(a.id)}">Message</button> <button class="mini" data-cancel="${esc(a.id)}">Cancel</button>` : `<span class="badge warn">${esc(a.status)}</span>`}</td>
       </tr>`).join("") || `<tr><td colspan="4" class="muted">No upcoming appointments.</td></tr>`;
+    document.querySelectorAll("[data-msg]").forEach(b => b.onclick = () => {
+      const a = appts.find(x => x.id === b.dataset.msg);
+      openCompose({ phone: a.phone, email: a.email, who: `${a.patient_name} · ${a.start_local} · ${a.provider}` });
+    });
     document.querySelectorAll("[data-cancel]").forEach(b => b.onclick = async () => {
       if (!confirm("Cancel this appointment?")) return;
       await api(`/api/appointments/${b.dataset.cancel}/cancel`, { method: "POST" });
@@ -92,6 +96,50 @@
     document.querySelectorAll("#follow [data-call]").forEach(l => l.onclick = (e) => { e.preventDefault(); openCall(l.dataset.call); });
   }
 
+  // ---- messages to patients
+  const VIA = { whatsapp: "WhatsApp", sms: "SMS", email: "Email", none: "—" };
+  const MSTATUS = { sent: ["Sent", "ok"], failed: ["Failed", "bad"], not_configured: ["Not set up", "warn"] };
+  let channels = {};
+  async function loadMessages() {
+    const d = await api("/api/messages?limit=30");
+    channels = d.channels;
+    $("channels").innerHTML = Object.entries(d.channels).map(([k, on]) => `<span class="badge ${on ? "ok" : "off"}" title="${on ? "Set up" : "Not set up yet: see docs/GO_LIVE.md"}">${VIA[k]} ${on ? "✓" : "off"}</span>`).join(" ");
+    $("msgs").innerHTML = d.messages.map(m => {
+      const [label, cls] = MSTATUS[m.status] || [m.status, ""];
+      return `<tr><td class="small nowrap">${esc(m.at)}</td><td class="small">${esc(m.to)}</td><td class="small">${esc(VIA[m.channel] || m.channel)}</td>
+        <td class="small">${esc(m.preview.slice(0, 140))}</td><td><span class="badge ${cls}" title="${esc(m.error || "")}">${label}</span></td></tr>`;
+    }).join("") || `<tr><td colspan="5" class="muted">No messages yet. Booking confirmations, reminders and your messages appear here.</td></tr>`;
+  }
+  const QUICK = ["The doctor is running about 30 minutes late today. Sorry for the wait.",
+                 "Please bring your previous prescriptions and reports to your visit.",
+                 "Your reports are ready. You can collect them at the reception."];
+  function openCompose({ phone = "", email = "", who = "" } = {}) {
+    const f = $("msgForm");
+    f.reset(); f.phone.value = phone || ""; f.email.value = email || "";
+    $("msgFor").textContent = who; $("msgErr").textContent = "";
+    const phoneVia = channels.whatsapp ? "WhatsApp (SMS if that fails)" : channels.sms ? "SMS" : null;
+    $("msgVia").textContent = `Sent by ${[phoneVia, channels.email ? "email" : null].filter(Boolean).join(" and ") || "— no messaging set up yet (see docs/GO_LIVE.md)"}.`;
+    f.querySelector(".msg-quick").innerHTML = QUICK.map(q => `<button type="button" class="chip-sm">${esc(q)}</button>`).join("");
+    f.querySelectorAll(".chip-sm").forEach(c => c.onclick = () => { f.text.value = c.textContent; });
+    $("msgDialog").showModal();
+  }
+  $("newMsg").onclick = () => openCompose();
+  $("msgForm").querySelector("[data-send]").onclick = async (e) => {
+    e.preventDefault();
+    const f = $("msgForm"), btn = e.target;
+    btn.disabled = true;
+    try {
+      const r = await fetch("/api/messages", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: f.phone.value, email: f.email.value, subject: f.subject.value, text: f.text.value }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(typeof d.detail === "string" ? d.detail : "Please fill in the message and a phone or email.");
+      $("msgErr").textContent = d.sent.length ? "" : "Not sent: " + (d.failed.length ? "the provider rejected it (see the message log)." : "no messaging is set up yet.");
+      if (d.sent.length) $("msgDialog").close();
+      loadMessages();
+    } catch (ex) { $("msgErr").textContent = ex.message; }
+    btn.disabled = false;
+  };
+
   async function openCall(id) {
     const c = await api(`/api/calls/${id}`);
     $("dlgTitle").textContent = `${c.caller || c.channel} · ${new Date(c.started_at).toLocaleString()} · ${c.duration_s ?? "–"}s`;
@@ -112,7 +160,7 @@
   $("dlgClose").onclick = () => $("callDialog").close();
 
   async function refresh() {
-    try { await Promise.all([loadAttention(), loadStats(), loadCalls(), loadAppts()]); } catch (e) { console.error(e); }
+    try { await Promise.all([loadAttention(), loadStats(), loadCalls(), loadAppts(), loadMessages()]); } catch (e) { console.error(e); }
   }
   $("range").onchange = refresh;
   refresh();

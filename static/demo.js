@@ -38,6 +38,11 @@
       renderChips();
     }).catch(() => { $("welcomeText").textContent = "This clinic link isn't valid."; });
 
+  const VIA = { whatsapp: "WhatsApp", sms: "SMS", email: "email" };
+  function sentVia(r) {
+    const ch = r.confirmation_channels || [];
+    return ch.length ? "Sending by " + ch.map(c => VIA[c] || c).join(" + ") : null;
+  }
   function renderChips() {
     $("chips").innerHTML = (CHIPS[lang()] || CHIPS["en-IN"]).map(t => `<button class="chip" type="button">${esc(t)}</button>`).join("");
   }
@@ -120,7 +125,7 @@
       case "book_appointment":
         if (r.booked) card(r.pending_confirmation ? "pending" : "ok", r.pending_confirmation ? "⏳" : "✓",
           r.pending_confirmation ? "Appointment requested · the clinic will confirm" : (r.updated ? "Appointment updated" : "Appointment booked"),
-          kv([["Doctor", r.provider], ["When", r.when], ["Fee", r.fee], ["Reference", r.appointment_id], ["SMS", r.confirmation_sms ? "Confirmation sent" : null]]));
+          kv([["Doctor", r.provider], ["When", r.when], ["Fee", r.fee], ["Reference", r.appointment_id], ["Confirmation", sentVia(r)]]));
         break;
       case "reschedule_appointment":
         if (r.rescheduled) card("ok", "↻", "Appointment moved", kv([["Doctor", r.provider], ["New time", r.when], ["Reference", r.appointment_id]]));
@@ -132,7 +137,7 @@
         if (r.issued) card(r.pending_confirmation ? "pending" : "ok", "🎫", r.already_had_token ? "You already have this token" : (r.pending_confirmation ? "OPD token requested" : "OPD token"),
           `<div class="token-big"><b>${esc(r.token_number)}</b><div>${esc(r.doctor)}<div class="muted small">${esc(r.weekday)} · ${esc(r.session)}</div></div></div>` +
           kv([["Please arrive by", r.please_arrive_by], ["Estimated turn", r.estimated_turn], ["Patients ahead", r.patients_ahead],
-              ["Fee", r.fee], ["Patient no.", r.patient_number]]));
+              ["Fee", r.fee], ["Patient no.", r.patient_number], ["Confirmation", sentVia(r)]]));
         break;
       case "check_opd_status": {
         const t = (r.your_tokens || [])[0];
@@ -232,7 +237,7 @@
       ws = new WebSocket(`${proto}://${location.host}/ws/browser`);
       ws.binaryType = "arraybuffer";
       ws.onopen = () => ws.send(JSON.stringify({ type: "start", clinic: CLINIC || undefined, language: lang(),
-        phone: $("phone").value.trim(), code: $("code").value }));
+        phone: $("phone").value.trim(), email: $("email").value.trim(), code: $("code").value }));
       ws.onmessage = (e) => {
         if (typeof e.data !== "string") return playPcm(e.data);
         const ev = JSON.parse(e.data);

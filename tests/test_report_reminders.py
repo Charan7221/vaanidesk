@@ -24,9 +24,9 @@ class FakeMessenger:
     def __init__(self):
         self.sent: list[tuple[str, str]] = []
 
-    async def send_message(self, to, body):
-        self.sent.append((to, body))
-        return True
+    async def notify_patient(self, biz, *, kind, msg, phone, email):
+        self.sent.append((phone, msg.text))
+        return {"sent": ["whatsapp"], "failed": []}
 
 
 def local(business, day, hhmm):

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VaaniDesk Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <link rel="stylesheet" href="/static/style.css?v=13" />
 </head>
 <body>
 <header class="top" data-app>
@@ -22,6 +22,7 @@
       <select id="range"><option value="1">Today</option><option value="7" selected>Last 7 days</option><option value="30">Last 30 days</option></select>
     </label>
     <span class="small muted" id="period"></span>
+    <button class="primary" id="newMsg" style="margin-left:auto">✉ Message a patient</button>
   </section>
   <section class="panel attention" id="attention" hidden>
     <h2>Needs attention <span class="badge warn" id="attnCount"></span></h2>
@@ -55,12 +56,36 @@
       </div>
     </section>
   </div>
+  <section class="panel" style="margin-top:18px">
+    <div class="panel-head"><h2>Messages to patients</h2><span class="small" id="channels"></span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>To</th><th>Via</th><th>Message</th><th>Status</th></tr></thead>
+      <tbody id="msgs"></tbody></table></div>
+  </section>
 </main>
+<dialog id="msgDialog">
+  <form method="dialog" id="msgForm">
+    <div class="head"><strong>Message a patient</strong><button value="cancel" formnovalidate>Close</button></div>
+    <div class="body stack-form">
+      <p class="small muted" style="margin:0" id="msgFor"></p>
+      <div class="grid2">
+        <label class="field">Mobile (WhatsApp / SMS)<input name="phone" type="tel" placeholder="+91 9XXXXXXXXX" /></label>
+        <label class="field">Email (optional)<input name="email" type="email" placeholder="patient@example.com" /></label>
+      </div>
+      <label class="field">Subject (email only)<input name="subject" placeholder="Message from the clinic" /></label>
+      <label class="field">Message<textarea name="text" rows="5" maxlength="1000" required placeholder="e.g. Dr. Rao is running 30 minutes late today. Sorry for the wait."></textarea></label>
+      <div class="msg-quick small"></div>
+      <p class="small muted" id="msgVia" style="margin:0"></p>
+      <button class="primary" data-send>Send</button>
+      <p class="err small" id="msgErr"></p>
+    </div>
+  </form>
+</dialog>
 <dialog id="callDialog">
   <div class="head"><strong id="dlgTitle">Call</strong><button id="dlgClose">Close</button></div>
   <div class="body"><div id="dlgBody" class="transcript" style="height:auto"></div></div>
 </dialog>
-<script src="/static/dashboard.js?v=8"></script>
+<script src="/static/dashboard.js?v=9"></script>
 <script src="/static/nav.js?v=3"></script>
 </body>
 </html>

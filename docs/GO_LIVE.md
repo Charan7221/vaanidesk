@@ -119,3 +119,16 @@ Twilio rarely sells Indian numbers. Exotel gives you an Indian virtual number, a
 > Check these against Exotel's current documentation and your account (applet names, the Passthru 200/302 branching, sample rates). Exotel's AgentStream docs: developer.exotel.com/docs/agentstream.
 
 **SMS and WhatsApp in India:** sending SMS to Indian numbers requires DLT registration (sender ID and approved templates) with your SMS provider. Until you have it, use **WhatsApp** for confirmations (`TWILIO_WHATSAPP_FROM`, or a WhatsApp Business provider). VaaniDesk sends WhatsApp first and falls back to SMS.
+
+## Step 5: Messages to patients (WhatsApp, SMS, email)
+
+VaaniDesk sends a confirmation after every booking, OPD token, change and cancellation, plus the day-before reminder. It tries the patient's mobile on WhatsApp first and SMS if WhatsApp fails, and also emails patients who gave an email. Staff can send their own message from **Dashboard → Message a patient**. The **Messages to patients** panel shows which channels are set up and the status of every message. Each clinic can change the order (or switch confirmations off) in **Setup → Safety, privacy, patient messages and OPD**.
+
+Set up any of these in `.env` (or Render → Environment). Nothing breaks if one is missing; the message is just logged as "Not set up".
+
+- **WhatsApp (recommended): Meta WhatsApp Cloud API.** In Meta Business Manager, create a WhatsApp Business app, add the clinic's number, and copy the permanent access token (`META_WA_TOKEN`) and phone-number ID (`META_WA_PHONE_ID`). Businesses may only send free text within 24 hours of the patient's last message to them. For everything else (confirmations from phone calls, reminders), create a **Utility** template with one body variable, e.g. `{{1}}`, get it approved, and set `META_WA_TEMPLATE` to its name. Per-message charges apply (Meta pricing for India utility messages).
+- **WhatsApp via Twilio:** set `TWILIO_WHATSAPP_FROM` (the sandbox works for testing; production needs an approved WhatsApp sender).
+- **SMS via Twilio:** uses `TWILIO_PHONE_NUMBER`. Indian numbers need DLT registration (entity + header + templates) before SMS are delivered to Indian mobiles. For India, an SMS provider registered on DLT (Exotel, MSG91, etc.) is usually cheaper.
+- **Email:** any SMTP server. With Gmail, turn on 2-step verification, create an **App Password**, then set `SMTP_HOST=smtp.gmail.com`, `SMTP_USER` = the address, `SMTP_PASSWORD` = the app password, `SMTP_FROM` = the address. For volume, use Amazon SES, Brevo or Zoho with the clinic's own domain.
+
+Check: `/health` shows `"messaging": {"whatsapp": true, "sms": ..., "email": ...}`. Then send yourself a test from the dashboard.

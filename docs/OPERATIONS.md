@@ -40,6 +40,11 @@ Nothing disappears until someone presses **Done**, so no request is lost.
 
 Every week (or before a renewal), open **Results**, choose the period and press **Print / save as PDF**. Send it to the clinic owner. The headline ("answered N calls, about M would likely have been missed") and the consultation fees from AI bookings are what justify the subscription.
 
+## 2c. Patient messages
+
+- Look at **Dashboard → Messages to patients** each morning. "Failed" (hover for the reason) usually means a wrong number, a WhatsApp template problem, or SMS blocked by DLT. "Not set up" means no provider is configured for that channel (see GO_LIVE Step 5).
+- If a patient says they didn't get a confirmation, use **Message** on their appointment row to resend the details.
+
 ## 3. Backups and the restore drill
 
 ```bash

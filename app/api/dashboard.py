@@ -10,6 +10,8 @@ from sqlalchemy.orm import selectinload
 
 from ..auth import audit
 from ..db import Appointment, Call, OpdToken, as_utc
+from ..messaging import Message, valid_email
+from ..phone import validate_phone
 from ..security import require_admin
 
 router = APIRouter(prefix="/api", tags=["dashboard"], dependencies=[Depends(require_admin)])
@@ -124,7 +126,8 @@ async def list_appointments(request: Request, upcoming: bool = True) -> list[dic
         out = []
         for a in rows:
             p = state.business.provider(a.provider_id)
-            out.append({"id": a.id, "patient_name": a.patient_name, "phone": a.phone, "status": a.status,
+            out.append({"id": a.id, "patient_name": a.patient_name, "phone": a.phone, "email": a.email,
+                        "status": a.status,
                         "provider": p.name if p else a.provider_id, "reason": a.reason, "call_id": a.call_id,
                         "start_local": as_utc(a.start).astimezone(tz).strftime("%a %d %b %Y, %I:%M %p")})
         return out
@@ -193,18 +196,71 @@ async def decide(kind: str, item_id: str, body: DecisionIn, request: Request) ->
         await state.db.update_appointment(item_id, confirmed=body.approve)
         if not body.approve:
             await state.calendar.cancel(item_id)
-        name, phone = appt.patient_name, appt.phone
+        name, phone, email = appt.patient_name, appt.phone, appt.email
         what = f"appointment on {as_utc(appt.start).astimezone(biz.tz).strftime('%a %d %b, %I:%M %p')}"
     elif kind == "token":
         token = await state.tools.opd.set_confirmed(item_id, body.approve)
         if not token:
             raise HTTPException(404, "token not found")
-        name, phone, what = token.patient_name, token.phone, f"OPD token {token.number} on {token.day}"
+        name, phone, email = token.patient_name, token.phone, token.email
+        what = f"OPD token {token.number} on {token.day}"
     else:
         raise HTTPException(422, "kind must be appointment or token")
-    if phone:
-        msg = (f"{biz.name}: your {what} for {name} is confirmed." if body.approve else
-               f"{biz.name}: sorry, we couldn't confirm your {what} for {name}. Please call us on {biz.phone}.")
-        await state.twilio.send_message(phone, msg)
+    if phone or email:
+        text = (f"{biz.name}: your {what} for {name} is confirmed." if body.approve else
+                f"{biz.name}: sorry, we couldn't confirm your {what} for {name}. Please call us on {biz.phone}.")
+        head = "Booking confirmed" if body.approve else "We couldn't confirm your booking"
+        await state.notifier.notify_patient(biz, kind="pilot", phone=phone, email=email, msg=Message(
+            text=text, subject=f"{head} · {biz.name}", title=head, lines=[("Patient", name), ("Booking", what),
+                                                                         ("Clinic", biz.name), ("Phone", biz.phone)]))
     await audit(request, "pilot.confirm" if body.approve else "pilot.reject", f"{kind}:{item_id}", patient=name)
     return {"approved": body.approve}
+
+
+# ------------------------------------------------------------------ messages to patients
+@router.get("/messages")
+async def message_log(request: Request, limit: int = 50) -> dict:
+    """Recent WhatsApp / SMS / email messages and which channels are set up."""
+    state = request.app.state.container
+    tz = state.business.tz
+    rows = await state.db.messages(min(max(limit, 1), 200))
+    return {"channels": state.notifier.status(), "messages": [{
+        "at": as_utc(m.at).astimezone(tz).strftime("%d %b, %I:%M %p"), "kind": m.kind, "channel": m.channel,
+        "to": m.to, "status": m.status, "error": m.error, "preview": m.preview} for m in rows]}
+
+
+class MessageIn(BaseModel):
+    phone: str | None = None
+    email: str | None = None
+    text: str
+    subject: str | None = None
+
+
+@router.post("/messages")
+async def send_message(body: MessageIn, request: Request) -> dict:
+    """Staff write to a patient (e.g. "the doctor is running late"). WhatsApp first, else SMS; and/or email."""
+    state = request.app.state.container
+    biz = state.business
+    text = (body.text or "").strip()
+    if not text:
+        raise HTTPException(422, "Write a message")
+    if len(text) > 1000:
+        raise HTTPException(422, "Keep the message under 1000 characters")
+    phone = email = None
+    if body.phone and body.phone.strip():
+        phone, problem = validate_phone(body.phone)
+        if problem:
+            raise HTTPException(422, f"Phone number: {problem}")
+    if body.email and body.email.strip():
+        email = valid_email(body.email)
+        if not email:
+            raise HTTPException(422, "That email address doesn't look right")
+    if not (phone or email):
+        raise HTTPException(422, "Add a phone number or an email address")
+    subject = (body.subject or "").strip() or f"Message from {biz.name}"
+    result = await state.notifier.send(
+        kind="manual", phone=phone, email=email, phone_channels=biz.notifications.phone_channels,
+        msg=Message(text=f"{biz.name}: {text}", subject=subject, title=subject,
+                    footer=f"{biz.name} · {biz.phone}".strip(" ·")))
+    await audit(request, "message.send", phone or email, channels=result["sent"], failed=result["failed"])
+    return result
