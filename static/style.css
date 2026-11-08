@@ -329,3 +329,7 @@ body.shell header.top nav a.sb-link[aria-current="page"] { color: var(--accent-i
 #msgDialog textarea, .setup textarea { width: 100%; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--bg); color: var(--text); }
 #msgDialog .field input { width: 100%; }
 .badge.off { background: var(--panel-2); color: var(--muted); }
+.setup-warn { margin: 4px 0 12px; padding: 10px 14px 10px 30px; border-radius: 10px; background: #fff7e6; color: #8a5a00; }
+.setup-warn li + li { margin-top: 6px; }
+.opd-table .appt-time { font-size: 13px; font-weight: 600; color: var(--accent, #0f766e); white-space: nowrap; }
+.appt-badge { background: #e0f2fe; color: #075985; }

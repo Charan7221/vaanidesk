@@ -174,6 +174,8 @@ class Appointment(ClinicScoped, Base):
     fee_amount: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Pilot mode: AI bookings wait for staff (False = pending). None/True = confirmed.
     confirmed: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    # Reception's view of the visit on the day: None (expected) | arrived | done | no_show
+    visit: Mapped[str | None] = mapped_column(String(16), nullable=True)
     reminder_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     external_event_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

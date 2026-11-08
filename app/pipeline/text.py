@@ -82,4 +82,14 @@ _UNFINISHED_ENDINGS = {
 def looks_unfinished(text: str) -> bool:
     """True when an utterance probably stops mid-sentence (e.g. "I want to book an appointment for")."""
     words = re.sub(r"[.,!?।…]+$", "", text.strip()).split()
-    return bool(words) and words[-1].lower() in _UNFINISHED_ENDINGS
+    if words and words[-1].lower() in _UNFINISHED_ENDINGS:
+        return True
+    # A phone number being read out ("nine. one. two." / "98480 22"): wait for the rest before replying.
+    digits = len(re.findall(r"\d", text)) + sum(w.strip(".,").lower() in _DIGIT_WORDS for w in text.split())
+    return 0 < digits < 10 and all(re.fullmatch(r"[\d.,+-]+", w) or w.strip(".,").lower() in _DIGIT_WORDS
+                                   for w in text.split())
+
+
+_DIGIT_WORDS = {"zero", "oh", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "double", "triple",
+                "शून्य", "एक", "दो", "तीन", "चार", "पांच", "पाँच", "छह", "सात", "आठ", "नौ",
+                "సున్నా", "ఒకటి", "రెండు", "మూడు", "నాలుగు", "ఐదు", "ఆరు", "ఏడు", "ఎనిమిది", "తొమ్మిది"}

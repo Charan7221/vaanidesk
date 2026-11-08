@@ -2,7 +2,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const CLINIC = new URLSearchParams(location.search).get("clinic") || "";
+  let CLINIC = new URLSearchParams(location.search).get("clinic") || "";
   const msgs = $("messages"), body = $("chatBody"), input = $("textInput"), sendBtn = $("sendBtn");
   const CHIPS = {
     "en-IN": ["Book an appointment tomorrow evening", "I need an OPD token for today", "My child has a fever, which doctor?", "Do I need to fast before a sugar test?"],
@@ -24,6 +24,7 @@
   fetch(`/api/public-config${CLINIC ? "?clinic=" + encodeURIComponent(CLINIC) : ""}`).then(r => r.ok ? r.json() : Promise.reject())
     .then(c => {
       cfg = c;
+      CLINIC = c.clinic;  // the server picks the clinic when the link doesn't name one
       const initial = (c.assistant || "V")[0].toUpperCase();
       document.title = `${c.assistant} · ${c.business}`;
       $("clinicName").textContent = c.business;

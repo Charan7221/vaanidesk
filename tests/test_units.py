@@ -143,3 +143,37 @@ def test_greeting_modes(business):
     assert short[1] == ("hi-IN", "आप हिंदी में भी बात कर सकते हैं।")
     off = greeting_segments(business.model_copy(update={"multilingual_greeting": "off"}), "en-IN")
     assert len(off) == 1
+
+
+def test_placeholder_env_values_and_config_warnings():
+    from app.config import Settings
+
+    s = Settings(_env_file=None, twilio_account_sid="AC...", twilio_auth_token="...",
+                 twilio_phone_number="+1...", openai_api_key="AQ.google-style-key")
+    assert (s.twilio_account_sid, s.twilio_auth_token, s.twilio_phone_number) == ("", "", "")
+    assert not s.twilio_enabled
+    assert any("OPENAI_BASE_URL" in w for w in s.config_warnings())
+    ok = Settings(_env_file=None, openai_api_key="AQ.key", openai_model="gemini-3.5-flash-lite",
+                  openai_base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    assert ok.config_warnings() == []
+    wrong_model = Settings(_env_file=None, openai_api_key="AQ.key", openai_model="gpt-4.1-mini",
+                           openai_base_url="https://generativelanguage.googleapis.com/v1beta/openai/")
+    assert "gemini model" in wrong_model.config_warnings()[0]
+
+
+def test_phone_numbers_read_out_in_pieces_wait_for_the_rest():
+    from app.pipeline.text import looks_unfinished
+
+    for partial in ("Nine.", "Nine. One. Two.", "91235.", "nine eight four", "తొమ్మిది ఎనిమిది"):
+        assert looks_unfinished(partial), partial
+    for done in ("98480 22338", "9848022338.", "Yeah.", "Two o'clock tomorrow", "No, it's not right."):
+        assert not looks_unfinished(done), done
+
+
+def test_prompt_never_promises_unsent_messages_and_ends_calls(business):
+    from app.pipeline.prompts import system_prompt
+
+    business.pilot_mode = True
+    prompt = system_prompt(business, caller_phone=None)
+    assert "by SMS shortly" not in prompt and "otherwise the clinic will call" in prompt
+    assert "Never say goodbye without calling end_call" in prompt and "10 digits" in prompt

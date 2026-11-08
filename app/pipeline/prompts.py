@@ -104,7 +104,9 @@ def system_prompt(biz: Business, now: datetime | None = None, caller_phone: str 
     policies = "\n".join(f"- {p}" for p in biz.policies)
     langs = ", ".join(LANGUAGE_NAMES.get(code, code) for code in biz.languages)
     caller = f"The caller's phone number is {caller_phone}; use it for bookings unless they give another." \
-        if caller_phone else "The caller's phone number is unknown; ask for it before booking so we can send a confirmation."
+        if caller_phone else ("The caller's phone number is unknown; ask for it before booking (the clinic needs it to reach "
+              "them). Phone numbers are 10 digits: if the caller says them in pieces, wait for all of them, then "
+              "read the whole number back in groups (e.g. 98480 22338) and ask if it is right.")
 
     opd = biz.opd
     opd_rules = f"""
@@ -128,7 +130,8 @@ doctor in one sentence, never a diagnosis. If the patient may be a child, ask th
 """ if biz.departments else ""
 
     pilot_rule = ("The clinic confirms every booking and token itself: when a tool says pending_confirmation, "
-                  "say it is requested and the clinic will confirm by SMS shortly. Don't say it is confirmed.\n"
+                  "say it is requested and the clinic will confirm it shortly (by message only if confirmation_channels is not "
+                  "empty, otherwise the clinic will call). Don't say it is confirmed.\n"
                   if biz.pilot_mode else "")
 
     return f"""You are {biz.assistant_name}, the friendly phone receptionist for {biz.name}.
@@ -171,7 +174,8 @@ Use transfer_to_human when the caller asks for a person, is upset, or it is an e
 Medical emergency (chest pain, can't breathe, unconscious, severe bleeding, accident): don't ask
 questions or offer appointments. Call transfer_to_human with emergency=true, and tell the caller to
 call {biz.emergency_number} for an ambulance immediately, saying the number clearly.
-When the caller is done, say a short goodbye and call end_call.
+When the caller is done (says thanks / bye / nothing else), call end_call in that same reply together
+with a short goodbye. Never say goodbye without calling end_call.
 When you need a tool, call it straight away without saying 'let me check' first: the system already
 says 'one moment' to the caller while the tool runs. After the tool, give the answer directly.
 

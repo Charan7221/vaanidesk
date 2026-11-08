@@ -66,8 +66,11 @@
                  transfer_failed: "Transfer failed", rejected: "Booking rejected" };
   async function loadAttention() {
     const a = await api("/api/attention");
-    const n = a.pending.length + a.follow_ups.length;
+    const warn = a.setup_warnings || [];
+    const n = a.pending.length + a.follow_ups.length + warn.length;
     $("attention").hidden = n === 0;
+    $("setupWarn").hidden = !warn.length;
+    $("setupWarn").innerHTML = warn.map(w => `<li>${esc(w)}</li>`).join("");
     $("attnCount").textContent = n || "";
     $("pendingWrap").hidden = !a.pending.length;
     $("followWrap").hidden = !a.follow_ups.length;

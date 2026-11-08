@@ -167,6 +167,7 @@ async def test_only_one_patient_with_the_doctor_and_rejecting_pending_tokens(db,
     assert (await opd.set_paid(b.id, True)).paid is True
 
     c, _ = await opd.issue(provider_id="dr-rao", day=monday, patient_name="C", phone="+919000000003", confirmed=False)
+    assert (await opd.get(c.id)).confirmed is False  # shown as "Not confirmed" on the OPD queue
     rejected = await opd.set_confirmed(c.id, False)
     assert rejected.confirmed is False and rejected.status == "cancelled"
     assert await opd.set_confirmed("missing", True) is None
@@ -219,3 +220,22 @@ def test_browser_call_guards_and_caller_details(settings):
                 second.send_json({"type": "start"})
                 assert second.receive_json() == {"type": "error", "message": "All lines busy, try again shortly"}
             ws.send_json({"type": "hangup"})
+
+
+def test_demo_page_follows_the_logged_in_clinic_and_setup_warnings(settings):
+    state, c = build(settings)
+    with c:
+        assert c.get("/api/public-config").json()["clinic"] == "default"  # visitors: the first clinic
+        login(c, ADMIN)
+        new_clinic(c)
+        c.post("/api/logout")
+        login(c, OWNER)
+        cfg = c.get("/api/public-config").json()
+        assert cfg["clinic"] == "sai" and cfg["business"] == "Sai Clinic"  # staff test their own receptionist
+        assert c.get("/api/public-config?clinic=default").json()["clinic"] == "default"  # explicit link wins
+        warnings = c.get("/api/attention").json()["setup_warnings"]
+        assert any("example number" in w for w in warnings) and any("WhatsApp or SMS" in w for w in warnings)
+        cfg = c.get("/api/setup").json()["config"]
+        cfg["handoff_number"] = "+914023456700"
+        c.put("/api/setup", json={"config": cfg})
+        assert not any("example number" in w for w in c.get("/api/attention").json()["setup_warnings"])

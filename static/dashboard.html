@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>VaaniDesk Dashboard</title>
-  <link rel="stylesheet" href="/static/style.css?v=13" />
+  <link rel="stylesheet" href="/static/style.css?v=15" />
 </head>
 <body>
 <header class="top" data-app>
@@ -26,6 +26,7 @@
   </section>
   <section class="panel attention" id="attention" hidden>
     <h2>Needs attention <span class="badge warn" id="attnCount"></span></h2>
+    <ul class="setup-warn small" id="setupWarn" hidden></ul>
     <div id="pendingWrap" hidden>
       <h3 class="small muted">Pilot mode: AI bookings waiting for your confirmation</h3>
       <div class="table-wrap"><table><thead><tr><th>Patient</th><th>Doctor</th><th>When</th><th></th></tr></thead><tbody id="pending"></tbody></table></div>
@@ -85,7 +86,7 @@
   <div class="head"><strong id="dlgTitle">Call</strong><button id="dlgClose">Close</button></div>
   <div class="body"><div id="dlgBody" class="transcript" style="height:auto"></div></div>
 </dialog>
-<script src="/static/dashboard.js?v=9"></script>
+<script src="/static/dashboard.js?v=10"></script>
 <script src="/static/nav.js?v=3"></script>
 </body>
 </html>

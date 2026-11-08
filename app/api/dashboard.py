@@ -165,7 +165,23 @@ async def attention(request: Request) -> dict:
         pending += [{"kind": "token", "id": t.id, "patient_name": t.patient_name, "phone": t.phone,
                      "doctor": (biz.provider(t.provider_id).name if biz.provider(t.provider_id) else t.provider_id),
                      "when": f"Token {t.number}, {t.day} {t.session}", "call_id": t.call_id} for t in tokens]
-    return {"pilot_mode": biz.pilot_mode, "follow_ups": follow, "pending": pending}
+    return {"pilot_mode": biz.pilot_mode, "follow_ups": follow, "pending": pending,
+            "setup_warnings": setup_warnings(biz, state.notifier.status())}
+
+
+PLACEHOLDER_NUMBERS = {"+919000000000", "+919000000001"}  # the example numbers in the clinic templates
+
+
+def setup_warnings(biz, channels: dict) -> list[str]:
+    """Things in the clinic's setup that will make calls or messages fail."""
+    out = []
+    if biz.handoff_number in PLACEHOLDER_NUMBERS or not biz.handoff_number:
+        out.append("The transfer / staff number is still the example number. Callers who ask for a person and "
+                   "follow-up alerts go nowhere: set it in Setup → Clinic → 'Transfer calls to'.")
+    if not (channels.get("whatsapp") or channels.get("sms")):
+        out.append("No WhatsApp or SMS provider is set up, so patients don't get booking confirmations or reminders "
+                   "(see docs/GO_LIVE.md Step 5). They are listed under Messages to patients as \"Not set up\".")
+    return out
 
 
 class ResolveIn(BaseModel):

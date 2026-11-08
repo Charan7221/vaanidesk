@@ -19,6 +19,7 @@ from .api.dashboard import router as dashboard_router
 from .api.knowledge import router as knowledge_router
 from .api.opd import router as opd_router
 from .api.report import router as report_router
+from .auth import principal_from_request
 from .background import drain
 from .config import ROOT_DIR, Settings, get_settings
 from .db import DEFAULT_CLINIC, current_clinic
@@ -92,6 +93,8 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         if state is None and (missing := settings.missing_keys()):
             logging.getLogger("vaanidesk").warning("Live calls disabled until these are set in .env: %s",
                                                    ", ".join(missing))
+        for w in settings.config_warnings():
+            logging.getLogger("vaanidesk").warning("Check .env: %s", w)
         yield
         retention.cancel()
         reminders.cancel()
@@ -163,6 +166,7 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         c = app.state.container
         return {"status": "ok", "business": c.business.name, "clinics": len(c.tenants),
                 "active_calls": len(c.active_sessions), "missing_keys": c.settings.missing_keys(),
+                "config_warnings": c.settings.config_warnings(),
                 "stt": c.settings.stt_provider, "llm": c.settings.openai_model, "twilio": c.settings.twilio_enabled,
                 "messaging": c.notifier.status()}
 
@@ -172,8 +176,13 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         c = app.state.container
         if clinic and clinic not in c.tenants:
             raise HTTPException(404, "clinic not found")
-        biz = c.tenant(clinic or DEFAULT_CLINIC).business
-        return {"business": biz.name, "assistant": biz.assistant_name, "clinic": clinic or DEFAULT_CLINIC,
+        if not clinic:  # staff testing their own receptionist: use the clinic they are logged in to
+            p = await principal_from_request(request)
+            if p and p.clinic_id in c.tenants:
+                clinic = p.clinic_id
+        clinic = clinic or DEFAULT_CLINIC
+        biz = c.tenant(clinic).business
+        return {"business": biz.name, "assistant": biz.assistant_name, "clinic": clinic,
                 "languages": biz.languages, "access_code_required": bool(c.settings.demo_access_code),
                 "emergency_number": biz.emergency_number,
                 "phone_number": c.settings.twilio_phone_number or None}

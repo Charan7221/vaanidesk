@@ -112,6 +112,29 @@ class Settings(BaseSettings):
         return v
 
     @model_validator(mode="after")
+    def _drop_placeholders(self) -> Settings:
+        # Values copied unchanged from .env.example ("AC...", "sk-...", "+1...") are not real settings:
+        # treat them as empty so the feature reports "not set up" instead of failing on every request.
+        for name, value in list(self.__dict__.items()):
+            if isinstance(value, str) and value.strip().endswith("..."):
+                setattr(self, name, "")
+        return self
+
+    def config_warnings(self) -> list[str]:
+        """Settings that are present but very likely wrong (shown at startup, in /health and check_setup)."""
+        out = []
+        key, base = self.openai_api_key, self.openai_base_url
+        if key and not base and not key.startswith("sk-"):
+            out.append("OPENAI_API_KEY is not an OpenAI key (OpenAI keys start with 'sk-') but OPENAI_BASE_URL "
+                       "is empty, so it is sent to OpenAI. For Gemini set OPENAI_BASE_URL="
+                       "https://generativelanguage.googleapis.com/v1beta/openai/ and a gemini OPENAI_MODEL.")
+        if base and "generativelanguage" in base and not self.openai_model.startswith("gemini"):
+            out.append(f"OPENAI_BASE_URL points to Gemini but OPENAI_MODEL is {self.openai_model!r}; use a gemini model.")
+        if self.twilio_account_sid and not self.twilio_account_sid.startswith("AC"):
+            out.append("TWILIO_ACCOUNT_SID should start with 'AC' (Twilio Console > Account info).")
+        return out
+
+    @model_validator(mode="after")
     def _hosted_url(self) -> Settings:
         # On Render the public URL is provided automatically.
         render_url = os.environ.get("RENDER_EXTERNAL_URL")

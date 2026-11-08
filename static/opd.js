@@ -23,6 +23,8 @@
   function tokenRow(t) {
     const [label, cls] = STATUS[t.status] || [t.status, ""];
     const actions = [];
+    const unconfirmed = t.confirmed === false && ["waiting", "in_consultation"].includes(t.status);
+    if (unconfirmed) actions.push(["confirm", "Confirm"], ["reject", "Reject"]);
     if (t.status === "waiting") actions.push(["in_consultation", "Call in"], ["skipped", "Missed"]);
     if (t.status === "in_consultation") actions.push(["done", "Done"]);
     if (t.status === "skipped" || t.status === "done") actions.push(["waiting", "Back to queue"]);
@@ -37,8 +39,28 @@
     return `<tr class="${t.status === "in_consultation" ? "is-serving" : ""}${["done", "cancelled"].includes(t.status) ? " is-past" : ""}">
       <td class="tok">${t.number}</td>
       <td><b>${esc(t.patient_name)}</b>${who ? ` <span class="small muted">${esc(who)}</span>` : ""}<div class="small muted">${esc(meta)}</div></td>
-      <td class="state"><span class="badge ${cls}">${label}</span> ${fee}
+      <td class="state"><span class="badge ${cls}">${label}</span> ${unconfirmed ? `<span class="badge warn" title="Pilot mode: the AI gave this token, staff haven't confirmed it yet">Not confirmed</span>` : ""} ${fee}
         <div class="actions">${actions.map(([s, l]) => `<button class="mini" data-token="${esc(t.id)}" data-status="${s}">${l}</button>`).join("")}</div></td>
+    </tr>`;
+  }
+
+  const VISIT = { null: ["Expected", ""], arrived: ["Arrived", "ok"], done: ["Seen", "muted-badge"], no_show: ["No-show", "bad"] };
+  function apptRow(a) {
+    const [label, cls] = VISIT[a.visit] || VISIT.null;
+    const pending = a.confirmed === false;
+    const actions = [];
+    if (pending) actions.push(["confirm", "Confirm"], ["reject", "Reject"]);
+    if (!a.visit) actions.push(["arrived", "Arrived"], ["no_show", "No-show"]);
+    if (a.visit === "arrived") actions.push(["done", "Seen"]);
+    if (a.visit) actions.push(["", "Undo"]);
+    const fee = a.fee_type == null ? "" : a.fee_type === "follow_up" && !a.fee_amount ? `<span class="badge ok">Free follow-up</span>`
+      : `<span class="badge">${esc(data.currency)}${a.fee_amount}</span>`;
+    return `<tr class="is-appt${a.visit === "done" || a.visit === "no_show" ? " is-past" : ""}">
+      <td class="tok appt-time" title="Fixed-time appointment">${nice(a.time)}</td>
+      <td><b>${esc(a.patient_name)}</b> <span class="badge appt-badge">Appointment</span>${a.reason ? ` <span class="small muted">${esc(a.reason)}</span>` : ""}
+        <div class="small muted">${esc([a.phone || "", a.source === "call" ? "AI call" : "Desk"].filter(Boolean).join(" · "))}</div></td>
+      <td class="state"><span class="badge ${cls}">${label}</span> ${pending ? `<span class="badge warn" title="Pilot mode: staff haven't confirmed this AI booking yet">Not confirmed</span>` : ""} ${fee}
+        <div class="actions">${actions.map(([v, l]) => `<button class="mini" data-appt="${esc(a.id)}" data-visit="${v}">${l}</button>`).join("")}</div></td>
     </tr>`;
   }
 
@@ -55,17 +77,17 @@
           <div class="small muted">${esc(s.label[0].toUpperCase() + s.label.slice(1))} OPD · ${nice(s.from)} – ${nice(s.to)} ${flags.join(" ")}</div></div>
         <div class="serving"><div class="small muted">Now serving</div><div class="num">${s.now_serving ?? "–"}</div></div>
       </div>
-      <div class="opd-stats small"><span><b>${s.waiting}</b> waiting</span><span><b>${s.issued}</b> token${s.issued === 1 ? "" : "s"} issued</span>${s.new_token_estimated_turn ? `<span>Next new token ≈ <b>${esc(s.new_token_estimated_turn)}</b></span>` : ""}</div>
+      <div class="opd-stats small"><span><b>${s.waiting}</b> waiting</span><span><b>${s.issued}</b> token${s.issued === 1 ? "" : "s"} issued</span><span><b>${s.appointments.length}</b> appointment${s.appointments.length === 1 ? "" : "s"}</span>${s.new_token_estimated_turn ? `<span>Next new token ≈ <b>${esc(s.new_token_estimated_turn)}</b></span>` : ""}</div>
       <div class="opd-actions">
         <button class="primary" data-act="next" ${key} ${s.waiting || s.now_serving ? "" : "disabled"}>Next patient</button>
         <button data-act="walkin" ${key} ${s.ended || s.cancelled ? "disabled" : ""}>+ Walk-in token</button>
         <button data-act="late" ${key}>${s.delay_minutes ? "Change delay" : "Doctor late"}</button>
         <button data-act="${s.cancelled ? "reopen" : "cancel"}" ${key} class="${s.cancelled ? "" : "danger-outline"}">${s.cancelled ? "Reopen OPD" : "Cancel OPD"}</button>
       </div>
-      ${s.tokens.length ? `<div class="table-wrap"><table class="opd-table">
-        <thead><tr><th>Token</th><th>Patient</th><th>Status</th></tr></thead>
-        <tbody>${s.tokens.map(tokenRow).join("")}</tbody></table></div>`
-        : `<p class="small muted">No tokens yet.</p>`}
+      ${s.tokens.length || s.appointments.length ? `<div class="table-wrap"><table class="opd-table">
+        <thead><tr><th>Token / time</th><th>Patient</th><th>Status</th></tr></thead>
+        <tbody>${s.appointments.map(apptRow).join("")}${s.tokens.map(tokenRow).join("")}</tbody></table></div>`
+        : `<p class="small muted">No tokens or appointments yet.</p>`}
     </section>`;
   }
 
@@ -139,7 +161,20 @@
     const btn = e.target.closest("button");
     if (!btn || btn.disabled) return;
     try {
+      if (btn.dataset.appt) {
+        const v = btn.dataset.visit;
+        if (v === "confirm" || v === "reject") {
+          if (v === "reject" && !confirm("Reject and cancel this appointment? The patient is told to call the clinic.")) return;
+          await post(`/api/pending/appointment/${btn.dataset.appt}`, { approve: v === "confirm" });
+        } else await post(`/api/opd/appointments/${btn.dataset.appt}/visit`, { visit: v || null });
+        return load();
+      }
       if (btn.dataset.token) {
+        if (["confirm", "reject"].includes(btn.dataset.status)) {
+          if (btn.dataset.status === "reject" && !confirm("Reject this token? The patient is told to call the clinic.")) return;
+          await post(`/api/pending/token/${btn.dataset.token}`, { approve: btn.dataset.status === "confirm" });
+          return load();
+        }
         if (btn.dataset.status === "cancelled" && !confirm("Cancel this token?")) return;
         if (["paid", "unpaid"].includes(btn.dataset.status)) await post(`/api/opd/tokens/${btn.dataset.token}/paid`, { paid: btn.dataset.status === "paid" });
         else await post(`/api/opd/tokens/${btn.dataset.token}/status`, { status: btn.dataset.status });

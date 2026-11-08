@@ -229,3 +229,42 @@ def test_reception_api_flow(settings):
                                                                "patient_name": "Aarav"}).status_code == 409
     finally:
         Business.now = original
+
+
+def test_appointments_show_in_their_opd_session(settings):
+    state = AppState.build(settings, stt=FakeSTT(), llm=FakeLLM(), tts=FakeTTS())
+    state.business.pilot_mode = True
+    day = next_weekday(state.business, 0)
+    original = Business.now
+    Business.now = lambda self: datetime(day.year, day.month, day.day, 8, 0, tzinfo=self.tz)
+    try:
+        with TestClient(create_app(settings, state)) as c:
+            ctx = ToolContext(call_id="c1", channel="phone", caller_phone="+919346968532")
+            a = c.portal.call(state.tools.run, ctx, "book_appointment", {
+                "patient_name": "Sreelakshmi", "date": day.isoformat(), "time": "17:40", "provider_id": "dr-lakshmi"})
+            assert a["booked"] and a["pending_confirmation"]
+            board = c.get(f"/api/opd?day={day.isoformat()}", auth=AUTH).json()
+            lakshmi = next(d for d in board["doctors"] if d["id"] == "dr-lakshmi")
+            by_session = {s["session"]: s["appointments"] for s in lakshmi["sessions"]}
+            evening = next(v for k, v in by_session.items() if k >= "16:00")
+            assert [x["patient_name"] for x in evening] == ["Sreelakshmi"] and evening[0]["time"] == "17:40"
+            assert evening[0]["confirmed"] is False and evening[0]["visit"] is None
+            assert all(not v for k, v in by_session.items() if k < "16:00")  # not in the morning session
+            rao = next(d for d in board["doctors"] if d["id"] == "dr-rao")
+            assert all(not s["appointments"] for s in rao["sessions"])  # only under her own doctor
+
+            url = f"/api/opd/appointments/{a['appointment_id']}/visit"
+            assert c.post(url, auth=AUTH, json={"visit": "teleported"}).status_code == 422
+            assert c.post(url, auth=AUTH, json={"visit": "arrived"}).json()["visit"] == "arrived"
+            assert c.post(url, auth=AUTH, json={"visit": "done"}).status_code == 200
+            assert c.post("/api/opd/appointments/nope/visit", auth=AUTH, json={"visit": "done"}).status_code == 404
+            board = c.get(f"/api/opd?day={day.isoformat()}", auth=AUTH).json()
+            lakshmi = next(d for d in board["doctors"] if d["id"] == "dr-lakshmi")
+            assert [x["visit"] for s in lakshmi["sessions"] for x in s["appointments"]] == ["done"]
+
+            # rejected (cancelled) appointments leave the queue
+            c.post(f"/api/pending/appointment/{a['appointment_id']}", auth=AUTH, json={"approve": False})
+            board = c.get(f"/api/opd?day={day.isoformat()}", auth=AUTH).json()
+            assert not any(s["appointments"] for d in board["doctors"] for s in d["sessions"])
+    finally:
+        Business.now = original

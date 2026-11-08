@@ -1,7 +1,7 @@
 """OPD reception screen API: today's token queues per doctor, walk-in tokens, "Next patient", delays."""
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -40,23 +40,65 @@ async def board(request: Request, day: date | None = None) -> dict:
     biz, opd = state.business, state.tools.opd
     day = day or biz.now().date()
     tokens = await opd.tokens(day)
+    midnight = datetime.combine(day, time(0), biz.tz)
+    appts = await state.db.appointments_between(midnight, midnight + timedelta(days=1))
+    day_sessions = biz.opd_sessions(day)
     doctors = []
     for p in biz.providers:
         sessions = []
-        for s in biz.opd_sessions(day):
+        for s in day_sessions:
             summary = await opd.queue_summary(day, p.id, s)
             summary["tokens"] = [{
                 "id": t.id, "number": t.number, "patient_name": t.patient_name, "phone": t.phone, "age": t.age,
                 "reason": t.reason, "status": t.status, "source": t.source,
-                "fee_type": t.fee_type, "fee_amount": t.fee_amount, "paid": bool(t.paid),
+                "fee_type": t.fee_type, "fee_amount": t.fee_amount, "paid": bool(t.paid), "confirmed": t.confirmed,
                 "created_at": as_utc(t.created_at).astimezone(biz.tz).strftime("%H:%M"),
             } for t in tokens if t.provider_id == p.id and t.session == s.key]
+            summary["appointments"] = [_appt(a, biz) for a in appts
+                                       if a.provider_id == p.id and _session_of(a, day_sessions, biz) == s.key]
             sessions.append(summary)
         dept = biz.department_of(p.id)
         doctors.append({"id": p.id, "name": p.name, "specialty": p.specialty, "sessions": sessions,
                         "department": dept.name if dept else None})
     return {"date": day.isoformat(), "weekday": day.strftime("%A"), "enabled": biz.opd.enabled,
             "avg_consult_minutes": biz.opd.avg_consult_minutes, "currency": biz.fees.currency, "doctors": doctors}
+
+
+def _session_of(appt, sessions, biz) -> str | None:
+    """The OPD session an appointment belongs to (the one it falls in, else the last one started before it)."""
+    start = as_utc(appt.start).astimezone(biz.tz)
+    inside = [s for s in sessions if s.start <= start < s.end]
+    before = [s for s in sessions if s.start <= start]
+    pick = inside or before[-1:] or sessions[:1]
+    return pick[0].key if pick else None
+
+
+def _appt(a, biz) -> dict:
+    return {"id": a.id, "patient_name": a.patient_name, "phone": a.phone, "reason": a.reason,
+            "time": as_utc(a.start).astimezone(biz.tz).strftime("%H:%M"), "visit": a.visit,
+            "confirmed": a.confirmed, "fee_type": a.fee_type, "fee_amount": a.fee_amount,
+            "source": "call" if a.call_id else "desk"}
+
+
+VISITS = ("arrived", "done", "no_show")
+
+
+class VisitIn(BaseModel):
+    visit: str | None = None  # arrived | done | no_show | None (undo)
+
+
+@router.post("/appointments/{appointment_id}/visit")
+async def appointment_visit(appointment_id: str, body: VisitIn, request: Request) -> dict:
+    """Reception marks an appointment patient as arrived, seen or no-show."""
+    state = _state(request)
+    if body.visit is not None and body.visit not in VISITS:
+        raise HTTPException(422, f"visit must be one of {', '.join(VISITS)}")
+    appt = await state.db.get_appointment(appointment_id)
+    if not appt or appt.status != "booked":
+        raise HTTPException(404, "appointment not found")
+    await state.db.update_appointment(appointment_id, visit=body.visit)
+    await audit(request, "appointment.visit", appointment_id, visit=body.visit, patient=appt.patient_name)
+    return {"id": appointment_id, "visit": body.visit}
 
 
 class TokenIn(BaseModel):
