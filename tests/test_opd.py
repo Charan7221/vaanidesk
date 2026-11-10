@@ -158,7 +158,7 @@ async def test_get_token_tool_and_status(executor, ctx, monday, clock):
     assert bad_phone["issued"] is False and "invalid phone" in bad_phone["reason"]
 
 
-async def test_token_ownership(executor, ctx, monday, clock):
+async def test_token_ownership(executor, ctx, monday, clock, sms):
     res = await executor.run(ctx, "get_opd_token", {"provider_id": "dr-rao", "patient_name": "Ravi Kumar",
                                                     "phone": "93469 68532"})
     stranger = ToolContext(call_id="other", channel="phone", caller_phone="+919876543210")
@@ -166,7 +166,11 @@ async def test_token_ownership(executor, ctx, monday, clock):
     denied = await executor.run(stranger, "cancel_opd_token", {"token_id": res["token_id"]})
     assert denied["cancelled"] is False and denied["reason"] == "not the caller's token"
 
-    # the stranger says the right number: now they can see (and cancel) it
+    # the stranger says the right number: a code goes to that number; only with it can they see or cancel
+    asked = await executor.run(stranger, "check_opd_status", {"phone": "9346968532"})
+    assert asked["your_tokens"] == [] and asked["verification_required"] and asked["sent_to"] == "ending 8532"
+    assert (await executor.run(stranger, "cancel_opd_token", {"token_id": res["token_id"]}))["cancelled"] is False
+    assert (await executor.run(stranger, "verify_phone_code", {"code": sms.last_code()}))["verified"]
     found = await executor.run(stranger, "check_opd_status", {"phone": "9346968532"})
     assert [t["token_number"] for t in found["your_tokens"]] == [1]
     ok = await executor.run(stranger, "cancel_opd_token", {"token_id": res["token_id"]})

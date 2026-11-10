@@ -22,7 +22,7 @@ class TwilioClient:
 
     async def _post(self, path: str, data: dict) -> dict | None:
         if not self.enabled:
-            log.info("[twilio disabled] POST %s %s", path, data)
+            log.info("[twilio disabled] POST %s (not sent)", path)
             return None
         async with httpx.AsyncClient(timeout=10, auth=(self.s.twilio_account_sid, self.s.twilio_auth_token)) as c:
             r = await c.post(f"{self.base}{path}", data=data)

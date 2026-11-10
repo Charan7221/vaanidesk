@@ -42,6 +42,10 @@ from .text import SentenceChunker, detect_script_language, looks_unfinished
 
 log = logging.getLogger(__name__)
 
+# tool-result fields safe to write to server logs (status only, no patient details)
+_LOGGABLE = {"booked", "issued", "cancelled", "rescheduled", "requested", "verified", "verification_required",
+             "code_sent", "reason", "token_number", "appointment_id", "pending_confirmation", "error"}
+
 MAX_TOOL_ROUNDS = 4
 
 # English words Indian callers commonly use inside Hindi/Telugu speech; never a language switch.
@@ -66,6 +70,7 @@ class SessionDeps:
     incomplete_turn_delay_ms: int = 1200  # caller paused mid-sentence ("I want to book for...")
     max_call_seconds: int = 600
     summarise: bool = True  # write an AI summary of the call for the dashboard
+    show_errors: bool = True  # include provider error details in events to the caller's browser (dev only)
 
 
 _REQUIRED = {t["function"]["name"]: t["function"]["parameters"].get("required", []) for t in TOOL_SCHEMAS}
@@ -369,7 +374,9 @@ class CallSession:
                     # (the booking is real even if the caller cut in while it was being announced).
                     self.messages.append({"role": "tool", "tool_call_id": tc.id,
                                           "content": json.dumps(result, ensure_ascii=False, default=str)})
-                    log.info("[%s] tool %s(%s) -> %s", self.ctx.call_id, tc.name, tc.arguments, result)
+                    # status only: names, numbers and symptoms stay out of server logs (they're in the database)
+                    status = {k: v for k, v in result.items() if k in _LOGGABLE} if isinstance(result, dict) else {}
+                    log.info("[%s] tool %s -> %s", self.ctx.call_id, tc.name, status)
                     await self.t.send_event({"type": "tool", "name": tc.name, "args": tc.arguments, "result": result})
                     await self.d.db.add_turn(self.ctx.call_id, "tool", f"{tc.name}", meta={"args": tc.arguments,
                                                                                          "result": result})
@@ -403,7 +410,8 @@ class CallSession:
             raise
         except Exception as exc:  # provider outage etc.: never leave the caller in silence
             log.exception("[%s] response failed", self.ctx.call_id)
-            await self.t.send_event({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+            await self.t.send_event({"type": "error", "message": f"{type(exc).__name__}: {exc}" if self.d.show_errors
+                                     else "The assistant had a problem."})
             await self._handle_outage(user_text, exc, spoken)
         finally:
             if player and not player.done():

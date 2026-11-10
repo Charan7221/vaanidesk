@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import secrets
+from collections import Counter
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -20,6 +21,7 @@ from ..background import spawn
 from ..db import DEFAULT_CLINIC, current_clinic
 from ..messaging import valid_email
 from ..phone import validate_phone
+from ..security import client_ip, limiter
 from .base import Transport
 
 log = logging.getLogger(__name__)
@@ -68,6 +70,9 @@ class BrowserTransport(Transport):
         self.closed = True
 
 
+_open_per_ip: Counter[str] = Counter()  # conversations currently open, per visitor address
+
+
 @router.websocket("/ws/browser")
 async def browser_call(ws: WebSocket) -> None:
     state = ws.app.state.container
@@ -75,6 +80,9 @@ async def browser_call(ws: WebSocket) -> None:
     await ws.accept()
     transport = BrowserTransport(ws)
     session = None
+    ip = client_ip(ws.headers, ws.client)
+    counted = False
+    typed = 0
     try:
         while True:
             msg = await ws.receive()
@@ -94,6 +102,16 @@ async def browser_call(ws: WebSocket) -> None:
                     await transport.send_event({"type": "error", "message": "Server not configured, missing: "
                                                 + ", ".join(s.missing_keys())})
                     break
+                if _open_per_ip[ip] >= s.chat_concurrent_per_ip:
+                    await transport.send_event({"type": "error", "message": "You already have a conversation open. "
+                                                "Close it first."})
+                    break
+                if not limiter.allow(f"chat:{ip}", limit=s.chat_sessions_per_hour, window_s=3600):
+                    await transport.send_event({"type": "error", "message": "Too many conversations from your "
+                                                "network. Please try again in a while."})
+                    break
+                _open_per_ip[ip] += 1
+                counted = True
                 if len(state.active_sessions) >= s.max_concurrent_calls:
                     await transport.send_event({"type": "error", "message": "All lines busy, try again shortly"})
                     break
@@ -106,10 +124,21 @@ async def browser_call(ws: WebSocket) -> None:
                 session = await state.new_session(transport, channel="browser", language=lang,
                                                   caller=validate_phone(data.get("phone"))[0])
                 session.ctx.caller_email = valid_email(data.get("email"))
+                session.ctx.caller_phone_trusted = False  # typed by the visitor: proven only by a one-time code
                 await transport.send_event({"type": "ready", "call_id": session.ctx.call_id})
                 await session.start()
-            elif kind == "text" and session and data.get("text", "").strip():
-                await session.feed_text(data["text"].strip())
+            elif kind == "text" and session and str(data.get("text", "")).strip():
+                text = str(data["text"]).strip()
+                if len(text) > s.chat_max_chars:
+                    await transport.send_event({"type": "error", "message": f"Please keep messages under "
+                                                f"{s.chat_max_chars} characters."})
+                    continue
+                typed += 1
+                if typed > s.chat_max_messages:
+                    await transport.send_event({"type": "error", "message": "This conversation is very long. "
+                                                "Please start a new one, or call the clinic."})
+                    break
+                await session.feed_text(text)
             elif kind == "hangup":
                 break
     except WebSocketDisconnect:
@@ -117,9 +146,14 @@ async def browser_call(ws: WebSocket) -> None:
     except Exception as exc:
         log.exception("Browser session error")
         # Show the real cause in the demo page instead of a silent hang-up.
-        await transport.send_event({"type": "error", "message": f"Server error: {type(exc).__name__}: {exc}"})
+        detail = "" if s.is_production else f" ({type(exc).__name__}: {exc})"  # internals stay in the server log
+        await transport.send_event({"type": "error", "message": f"Something went wrong on our side.{detail}"})
     finally:
         transport.closed = True
+        if counted:
+            _open_per_ip[ip] -= 1
+            if _open_per_ip[ip] <= 0:
+                del _open_per_ip[ip]
         if session:
             # Finish the call record even if this handler is being cancelled (client vanished): a database
             # write interrupted half-way leaves a broken connection behind.

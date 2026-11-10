@@ -27,7 +27,7 @@ from fastapi import APIRouter, Request, Response, WebSocket, WebSocketDisconnect
 
 from ..background import spawn
 from ..db import DEFAULT_CLINIC, Call, current_clinic
-from ..phone import normalize_phone
+from ..phone import mask_phone, normalize_phone
 from .base import Transport
 
 log = logging.getLogger(__name__)
@@ -115,7 +115,7 @@ def _authorised(ws: WebSocket, secret: str) -> bool:
 async def exotel_stream(ws: WebSocket) -> None:
     state = ws.app.state.container
     s = state.settings
-    if not _authorised(ws, s.exotel_stream_secret):
+    if not _authorised(ws, s.exotel_stream_secret) or (s.is_production and not s.exotel_stream_secret):
         await ws.close(code=1008)
         return
     await ws.accept()
@@ -140,7 +140,7 @@ async def exotel_stream(ws: WebSocket) -> None:
                 call_sid = start.get("call_sid", "")
                 transport = ExotelTransport(ws, start.get("stream_sid") or msg.get("stream_sid", ""), call_sid, rate)
                 session = await state.new_session(transport, channel="phone", caller=caller, external_id=call_sid)
-                log.info("Exotel call sid=%s from=%s clinic=%s", call_sid, caller, current_clinic.get())
+                log.info("Exotel call sid=%s from=%s clinic=%s", call_sid, mask_phone(caller), current_clinic.get())
                 await session.start()
             elif event == "media" and session:
                 payload = (msg.get("media") or {}).get("payload")

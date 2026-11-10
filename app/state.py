@@ -166,7 +166,8 @@ class AppState:
         deps = SessionDeps(business=t.business, db=self.db, stt=self.stt, llm=self.llm, tts=self.tts,
                            tools=t.tools, end_of_turn_delay_ms=self.settings.end_of_turn_delay_ms,
                            incomplete_turn_delay_ms=self.settings.incomplete_turn_delay_ms,
-                           max_call_seconds=self.settings.max_call_seconds)
+                           max_call_seconds=self.settings.max_call_seconds,
+                           show_errors=not self.settings.is_production)
         try:
             session = CallSession(deps, transport, ctx)
         except Exception:

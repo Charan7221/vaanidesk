@@ -135,16 +135,52 @@ async def test_emergency_transfer_tells_caller_to_call_ambulance(executor, ctx):
     assert "108" in result["instruction"]
 
 
-async def test_find_appointments_by_spoken_number_or_name(executor, ctx, monday):
+async def test_find_appointments_by_spoken_number_needs_a_code(executor, ctx, monday, sms):
     from datetime import datetime
     biz = executor.biz
     await executor.cal.book(patient_name="Meena", phone="+919000011111", provider_id="dr-rao",
                             start=datetime(monday.year, monday.month, monday.day, 9, 0, tzinfo=biz.tz))
     ctx.caller_phone = "+919999999999"  # calling from a different phone
     assert (await executor.run(ctx, "find_appointments", {}))["appointments"] == []
+    asked = await executor.run(ctx, "find_appointments", {"phone": "90000 11111"})
+    assert asked["appointments"] == [] and asked["verification_required"] and asked["sent_to"] == "ending 1111"
+    assert sms.sent[-1][0] == "+919000011111" and "Meena" not in str(asked)  # nothing revealed yet
+    assert (await executor.run(ctx, "verify_phone_code", {"code": "000000"}))["verified"] is False
+    ok = await executor.run(ctx, "verify_phone_code", {"code": " ".join(sms.last_code())})  # spoken digit by digit
+    assert ok["verified"] is True
     by_spoken = await executor.run(ctx, "find_appointments", {"phone": "90000 11111"})
     by_name = await executor.run(ctx, "find_appointments", {"name": "meena", "phone": "unknown"})
     assert len(by_spoken["appointments"]) == 1 and len(by_name["appointments"]) == 1
+    msgs = await executor.cal.db.messages()
+    assert sms.last_code() not in str([m.preview for m in msgs])  # codes never land in the message log
+
+
+async def test_codes_expire_and_lock_after_wrong_tries(executor, ctx, monday, sms):
+    from datetime import datetime
+    await executor.cal.book(patient_name="Meena", phone="+919000011111", provider_id="dr-rao",
+                            start=datetime(monday.year, monday.month, monday.day, 9, 0, tzinfo=executor.biz.tz))
+    ctx.caller_phone = "+919999999999"
+    await executor.run(ctx, "find_appointments", {"phone": "9000011111"})
+    for _ in range(executor.OTP_MAX_TRIES):
+        r = await executor.run(ctx, "verify_phone_code", {"code": "111111" if sms.last_code() != "111111" else "222222"})
+    assert r["reason"] == "too many wrong codes"
+    assert (await executor.run(ctx, "verify_phone_code", {"code": sms.last_code()}))["verified"] is False
+    await executor.run(ctx, "find_appointments", {"phone": "9000011111"})
+    ctx.otp["expires"] = 0  # 10 minutes later
+    assert (await executor.run(ctx, "verify_phone_code", {"code": sms.last_code()}))["reason"] == "code expired"
+    for _ in range(5):
+        r = await executor.run(ctx, "find_appointments", {"phone": "9000011111"})
+    assert r["code_sent"] is False and len(sms.sent) == executor.OTP_MAX_SENDS  # no SMS bombing
+
+
+async def test_web_chat_number_is_not_trusted_and_no_messaging_means_no_details(executor, monday):
+    from datetime import datetime
+    await executor.cal.book(patient_name="Meena", phone="+919000011111", provider_id="dr-rao",
+                            start=datetime(monday.year, monday.month, monday.day, 9, 0, tzinfo=executor.biz.tz))
+    web = ToolContext(call_id="w1", channel="browser", caller_phone="+919000011111", caller_phone_trusted=False)
+    r = await executor.run(web, "find_appointments", {})  # typed someone else's number in the chat options
+    assert r["appointments"] == [] and r["verification_required"] and r["code_sent"] is False
+    assert "request_callback" in r["instruction"]
 
 
 async def test_find_appointments_uses_caller_number_even_with_a_name(executor, ctx, monday):
@@ -190,7 +226,7 @@ async def test_same_patient_second_booking_is_redirected_to_reschedule(executor,
     assert extra["booked"] and len(await db.find_appointments()) == 2
 
 
-async def test_cannot_see_or_change_another_patients_booking(executor, ctx, monday, db):
+async def test_cannot_see_or_change_another_patients_booking(executor, ctx, monday, db, sms):
     from datetime import datetime
     other = await executor.cal.book(patient_name="Meena Iyer", phone="+919811122233", provider_id="dr-rao",
                                     start=datetime(monday.year, monday.month, monday.day, 9, 0,
@@ -203,7 +239,12 @@ async def test_cannot_see_or_change_another_patients_booking(executor, ctx, mond
         r = await executor.run(ctx, tool_name, args)
         assert r["reason"] == "not the caller's appointment"
     assert (await db.get_appointment(other.id)).status == "booked"
-    # ...but saying the number used when booking proves ownership
+    # ...saying the number isn't enough: a code goes to that number, and only then can they act
+    asked = await executor.run(ctx, "find_appointments", {"name": "Meena", "phone": "98111 22233"})
+    assert asked["appointments"] == [] and asked["verification_required"]
+    assert (await executor.run(ctx, "cancel_appointment", {"appointment_id": other.id}))["reason"] == \
+        "not the caller's appointment"
+    assert (await executor.run(ctx, "verify_phone_code", {"code": sms.last_code()}))["verified"]
     mine = await executor.run(ctx, "find_appointments", {"name": "Meena", "phone": "98111 22233"})
     assert mine["appointments"][0]["appointment_id"] == other.id
     assert (await executor.run(ctx, "cancel_appointment", {"appointment_id": other.id}))["cancelled"]

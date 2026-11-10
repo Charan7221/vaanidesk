@@ -20,7 +20,9 @@ services:
         value: gemini-3.5-flash-lite
       - key: SARVAM_API_KEY
         sync: false
-      - key: ADMIN_PASSWORD
+      - key: APP_ENV
+        value: production
+      - key: ADMIN_PASSWORD   # 12+ characters, not a common password (the server won't start otherwise)
         sync: false
       - key: SECRET_KEY
         generateValue: true

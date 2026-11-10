@@ -1,7 +1,11 @@
 """Tools the receptionist agent can call (OpenAI function-calling schema + executors)."""
 from __future__ import annotations
 
+import hashlib
+import hmac
 import logging
+import secrets
+import time as _time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
@@ -13,6 +17,7 @@ from ..db import as_utc
 from ..knowledge import KnowledgeStore
 from ..messaging import Message, Notifier, valid_email
 from ..phone import validate_phone
+from ..security import limiter
 from .calendar import LocalCalendar, SlotUnavailable
 from .opd import OpdDesk, OpdError
 from .routing import recommend
@@ -34,9 +39,14 @@ class ToolContext:
     pending_action: str | None = None  # "transfer" | "hangup" — executed after the agent finishes speaking
     outcome: str | None = None
     booked_ids: list[str] = field(default_factory=list)
-    #: numbers the caller said out loud and that matched a booking (lets them manage bookings made
-    #: from another phone). Bookings are only changeable by their owner: see ToolExecutor._owns.
+    #: True when caller_phone comes from the phone network (caller ID). The web chat's number is typed by
+    #: the visitor, so it is not trusted until a one-time code sent to it is confirmed.
+    caller_phone_trusted: bool = True
+    #: other numbers the caller proved they own in this call (one-time code), so they can manage bookings
+    #: made from another phone. Bookings are only visible/changeable by their owner: see ToolExecutor._owns.
     verified_phones: set[str] = field(default_factory=set)
+    otp: dict | None = None  # the pending one-time code: phone, digest, expiry, tries
+    otp_sends: int = 0
     opd_token_ids: list[str] = field(default_factory=list)  # OPD tokens issued in this call
     tools_used: set[str] = field(default_factory=set)  # to spot calls that ended before the task was done
 
@@ -128,6 +138,19 @@ TOOL_SCHEMAS: list[dict] = [
             "parameters": {
                 "type": "object",
                 "properties": {"name": {"type": "string"}, "phone": {"type": "string"}},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_phone_code",
+            "description": "Check the one-time code the caller read out, after a tool said verification_required "
+                           "and sent a code to their mobile. On success, repeat the original request.",
+            "parameters": {
+                "type": "object",
+                "properties": {"code": {"type": "string", "description": "the digits the caller said"}},
+                "required": ["code"],
             },
         },
     },
@@ -295,6 +318,7 @@ class ToolExecutor:
             "check_availability": self.check_availability,
             "book_appointment": self.book_appointment,
             "find_appointments": self.find_appointments,
+            "verify_phone_code": self.verify_phone_code,
             "cancel_appointment": self.cancel_appointment,
             "reschedule_appointment": self.reschedule_appointment,
             "get_opd_token": self.get_opd_token,
@@ -463,11 +487,15 @@ class ToolExecutor:
         phones = {p for p in (ctx.caller_phone, spoken) if p}
         name = (args.get("name") or "").strip()
         found: dict[str, Any] = {}
+        unproven: set[str] = set()  # numbers with bookings that the caller hasn't proved are theirs
         for p in phones:
             for a in await self.cal.find(phone=p):
-                found[a.id] = a
-        if spoken and any(a.phone == spoken for a in found.values()):
-            ctx.verified_phones.add(spoken)
+                if self._owns(ctx, a):
+                    found[a.id] = a
+                else:
+                    unproven.add(p)
+        if unproven and not found:
+            return await self._start_verification(ctx, sorted(unproven)[0])
         hidden = 0
         if name and name.lower() not in _PLACEHOLDER_NAMES:
             for a in await self.cal.find(name=name):
@@ -530,10 +558,80 @@ class ToolExecutor:
         return {"appointment_id": a.id, "patient_name": a.patient_name, "provider_id": a.provider_id,
                 "when": as_utc(a.start).astimezone(self.biz.tz).strftime("%a %d %b, %I:%M %p")}
 
+    @staticmethod
+    def _trusted_phones(ctx: ToolContext) -> set[str]:
+        """Numbers the caller has shown they control: caller ID on a phone call, or a confirmed one-time code."""
+        trusted = set(ctx.verified_phones)
+        if ctx.caller_phone and ctx.caller_phone_trusted:
+            trusted.add(ctx.caller_phone)
+        return trusted
+
     def _owns(self, ctx: ToolContext, a) -> bool:
         """A caller may only see/change bookings made in this call or under a number they control."""
-        return a.id in ctx.booked_ids or (a.phone is not None and
-                                           (a.phone == ctx.caller_phone or a.phone in ctx.verified_phones))
+        return a.id in ctx.booked_ids or (a.phone is not None and a.phone in self._trusted_phones(ctx))
+
+    # ------------------------------------------------------------------ one-time codes
+    OTP_TTL_S = 600
+    OTP_MAX_TRIES = 3
+    OTP_MAX_SENDS = 3  # per call
+
+    @staticmethod
+    def _digest(phone: str, code: str) -> str:
+        return hashlib.sha256(f"{phone}:{code}".encode()).hexdigest()
+
+    async def _start_verification(self, ctx: ToolContext, phone: str) -> dict:
+        """The caller asked about bookings under a number we can't trust yet: text a code to that number."""
+        masked = f"ending {phone[-4:]}"
+        status = self.notifier.status()
+        channels = [c for c in (self.biz.notifications.phone_channels or ["whatsapp", "sms"]) if status.get(c)]
+        if not channels:
+            return {"appointments": [], "verification_required": True, "code_sent": False,
+                    "instruction": "For privacy, bookings under another mobile number can only be shared after "
+                                   "confirming that number, and this clinic can't send a code right now. Don't "
+                                   "reveal anything; offer request_callback so staff call that number back."}
+        if ctx.otp_sends >= self.OTP_MAX_SENDS or not limiter.allow(f"otp:{phone}", limit=5, window_s=3600):
+            return {"appointments": [], "verification_required": True, "code_sent": False,
+                    "instruction": "Too many codes in this call. Don't reveal anything; offer request_callback."}
+        code = f"{secrets.randbelow(1_000_000):06d}"
+        ctx.otp = {"phone": phone, "digest": self._digest(phone, code), "expires": _time.monotonic() + self.OTP_TTL_S,
+                   "tries": 0}
+        ctx.otp_sends += 1
+        msg = Message(text=f"{self.biz.name}: your verification code is {code}. It is valid for 10 minutes. "
+                           "Only tell it to the clinic's receptionist on this call.",
+                      log_as=f"Verification code (hidden) for a call · {self.biz.name}")
+        result = await self.notifier.send(kind="otp", msg=msg, phone=phone, phone_channels=channels, use_email=False)
+        if not result["sent"]:
+            ctx.otp = None
+            return {"appointments": [], "verification_required": True, "code_sent": False,
+                    "instruction": "The code could not be sent. Don't reveal anything; offer request_callback."}
+        return {"appointments": [], "verification_required": True, "code_sent": True, "sent_to": masked,
+                "via": result["sent"][0],
+                "instruction": f"For privacy, say you have sent a 6-digit code to the mobile number {masked} "
+                               f"(by {result['sent'][0]}). Ask the caller to read it out, then call "
+                               "verify_phone_code. Don't reveal any booking details before that."}
+
+    async def verify_phone_code(self, ctx: ToolContext, args: dict) -> dict:
+        otp = ctx.otp
+        if not otp:
+            return {"verified": False, "reason": "no code was sent in this call",
+                    "instruction": "Call find_appointments (or check_opd_status) with the mobile number first."}
+        if _time.monotonic() > otp["expires"]:
+            ctx.otp = None
+            return {"verified": False, "reason": "code expired",
+                    "instruction": "Offer to send a new code by calling find_appointments with the number again."}
+        code = "".join(ch for ch in str(args.get("code", "")) if ch.isdigit())
+        otp["tries"] += 1
+        if hmac.compare_digest(self._digest(otp["phone"], code), otp["digest"]):
+            ctx.verified_phones.add(otp["phone"])
+            ctx.otp = None
+            return {"verified": True, "instruction": "Thank the caller and repeat their original request now "
+                                                     "(e.g. find_appointments with that number)."}
+        if otp["tries"] >= self.OTP_MAX_TRIES:
+            ctx.otp = None
+            return {"verified": False, "reason": "too many wrong codes",
+                    "instruction": "Don't reveal anything. Offer request_callback so staff can help."}
+        return {"verified": False, "reason": "wrong code", "tries_left": self.OTP_MAX_TRIES - otp["tries"],
+                "instruction": "Say the code didn't match and ask them to read it again, digit by digit."}
 
     async def _owned(self, ctx: ToolContext, appt_id: str) -> tuple[Any, dict | None]:
         appt = await self.cal.db.get_appointment((appt_id or "").strip())
@@ -605,8 +703,8 @@ class ToolExecutor:
         return {"reason": "this clinic does not give OPD tokens",
                 "instruction": "Offer a fixed-time appointment instead (check_availability)."}
 
-    def _caller_phones(self, ctx: ToolContext, spoken: str | None = None) -> set[str]:
-        return {p for p in (ctx.caller_phone, spoken, *ctx.verified_phones) if p}
+    def _caller_phones(self, ctx: ToolContext) -> set[str]:
+        return self._trusted_phones(ctx)
 
     async def get_opd_token(self, ctx: ToolContext, args: dict) -> dict:
         if off := self._opd_off():
@@ -692,13 +790,17 @@ class ToolExecutor:
             return off
         today = self.biz.now().date()
         spoken = validate_phone(args.get("phone") or "")[0]
-        mine = {t.id: t for t in await self.opd.find_active(self._caller_phones(ctx, spoken), today)}
+        mine = {t.id: t for t in await self.opd.find_active(self._caller_phones(ctx), today)}
         for token_id in ctx.opd_token_ids:
             t = await self.opd.get(token_id)
             if t and t.status in ("waiting", "in_consultation"):
                 mine[t.id] = t
-        if spoken and any(t.phone == spoken for t in mine.values()):
-            ctx.verified_phones.add(spoken)
+        unproven = [p for p in {spoken, ctx.caller_phone} - self._caller_phones(ctx) - {None}
+                    if await self.opd.find_active({p}, today)]
+        if unproven and not mine:
+            res = await self._start_verification(ctx, unproven[0])
+            res.pop("appointments", None)
+            return {"your_tokens": [], **res}
         day = self._parse_date(args["date"]) if args.get("date") else today
         provider_id = self._provider_id(args.get("provider_id"))
         providers = [self.biz.provider(provider_id)] if provider_id else self.biz.providers

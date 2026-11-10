@@ -132,3 +132,9 @@ Set up any of these in `.env` (or Render → Environment). Nothing breaks if one
 - **Email:** any SMTP server. With Gmail, turn on 2-step verification, create an **App Password**, then set `SMTP_HOST=smtp.gmail.com`, `SMTP_USER` = the address, `SMTP_PASSWORD` = the app password, `SMTP_FROM` = the address. For volume, use Amazon SES, Brevo or Zoho with the clinic's own domain.
 
 Check: `/health` shows `"messaging": {"whatsapp": true, "sms": ..., "email": ...}`. Then send yourself a test from the dashboard.
+
+## Before real patients: security checklist
+
+Work through [docs/SECURITY.md](SECURITY.md) → "Before a real clinic goes live". In short: production settings
+(the server refuses to start with weak secrets), a **paid** AI key (free-tier data may be used by the provider),
+WhatsApp/SMS set up for caller verification codes, and short transcript retention.

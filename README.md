@@ -91,7 +91,7 @@ A clinic signs itself up on `/signup` (starting in pilot mode) and adds its rece
 - ✋ **Barge-in:** the caller can interrupt and the agent stops and listens. It reacts to recognised words, not to coughs or its own echo, and if an interruption brings no words it finishes the answer instead of going silent
 - 🛠️ **Agentic tool use:** check availability, book, find, reschedule or cancel appointments, transfer to a human, end the call
 - 📚 **RAG over clinic documents:** answers fees, insurance, test-preparation and policy questions from the clinic's own PDFs and notes, using hybrid search (BM25 + embeddings, pgvector on Postgres), with the source shown on the dashboard
-- 🔒 **Guardrails in the tools, not just the prompt:** callers can only see or change their own bookings (matched by phone), invalid numbers and placeholder names are rejected, and a change of mind moves the booking instead of double-booking
+- 🔒 **Guardrails in the tools, not just the prompt:** callers can only see or change their own bookings. Caller ID counts as proof; for any other number VaaniDesk sends a **one-time code** by WhatsApp/SMS first, so prompt injection or a stranger saying someone's number reveals nothing. Invalid numbers and placeholder names are rejected, and a change of mind moves the booking instead of double-booking
 - 🎫 **OPD token queue:** callers take a walk-in **OPD token** by phone ("token 7 for Dr. Rao's evening OPD, please come by 5:45"), ask "which number is going on?" or "how long will I wait?", and cancel tokens. Reception runs the live queue on the **OPD page**: walk-in tokens, **Next patient**, missed turns, "doctor running late" (shifts every estimate) and cancelled sessions. Fixed-time **appointments appear in the same queue** (Arrived / Seen / No-show). Patients get a reusable patient number on their first token.
 - 🩺 **Right doctor for new patients:** callers describe the problem ("knee pain", "my son has a cough") and VaaniDesk picks the **department and doctor**, applying age rules (children → paediatrics) and gender rules (pregnancy → gynaecology), and flags danger signs for 108. It never diagnoses. Works for a 2-doctor clinic ([`config/business.yaml`](config/business.yaml)) or a multispeciality hospital ([`config/hospital.yaml`](config/hospital.yaml), 8 departments).
 - 💰 **Consultation fees and free follow-ups:** fees per department or doctor; a repeat visit to the same department within N days is a follow-up (free or reduced). It's tracked per patient across tokens and appointments, told to the caller, and shown on the OPD page with **Mark paid**.
@@ -105,9 +105,9 @@ A clinic signs itself up on `/signup` (starting in pilot mode) and adds its rece
 - 🛟 **Built for real clinics:** **pilot mode** (AI bookings wait for staff to confirm), a **Needs attention** list on the dashboard (AI outages, calls that ended mid-booking, callback requests, with SMS alerts to staff), a spoken apology and handover when an AI provider fails, a database rule against double bookings, an "I'm an AI assistant" notice, automatic transcript deletion after N days, and backup/restore scripts with a restore drill. See [docs/OPERATIONS.md](docs/OPERATIONS.md).
 - 📅 **Clinic calendar with zero setup:** week view per doctor where staff block time (meetings, leave) and book walk-ins, plus a private **subscribe link** that shows bookings in Google, Apple or Outlook calendar on the owner's phone. Optional two-way **Google Calendar** sync.
 - 📊 **Clinic dashboard:** Needs attention (pilot confirmations, call-backs, setup warnings), calls with transcripts and AI summaries, booking rate, per-turn latency, language mix, upcoming appointments and the patient message log
-- 🧪 **Tested:** 184 automated tests (93% line coverage), including protocol tests against mock Sarvam, Deepgram and OpenAI servers
+- 🧪 **Tested:** 200 automated tests, including protocol tests against mock Sarvam, Deepgram and OpenAI servers
 - 🎯 **LLM evals:** multilingual conversation scenarios scored for tool use, outcome, reply language, brevity and safety
-- 🔐 **Production touches:** Twilio webhook signature validation, dashboard auth, demo access code, concurrency limits, call watchdog, Docker and CI
+- 🔐 **Security for an AI agent that handles patient data** ([docs/SECURITY.md](docs/SECURITY.md)): rules enforced in code, never by the prompt; one-time codes for caller identity; refuses to start in production with weak secrets; revocable signed logins; strict Content-Security-Policy and security headers; per-visitor limits so the public chat can't run up the AI bill; no patient details in logs; Twilio/Exotel request checks; `pip-audit` and Dependabot in CI
 
 ## Architecture
 
@@ -157,7 +157,7 @@ More detail: [docs/architecture.md](docs/architecture.md).
 | LLM | Any OpenAI-compatible API: Gemini (`gemini-3.5-flash-lite`, used in the evals), OpenAI, Groq | Fast streaming with reliable tool calling; switch with `OPENAI_BASE_URL` / `OPENAI_MODEL` |
 | Text-to-speech | Sarvam Bulbul v3 (streaming WebSocket) | Natural Indian English, Hindi and Telugu voices |
 | Data | SQLAlchemy 2.0 async, SQLite or PostgreSQL | Zero setup locally, Postgres in production |
-| Quality | Pytest (184 tests), mock provider servers, LLM eval harness, Playwright screenshots, Ruff, GitHub Actions | |
+| Quality | Pytest (200 tests), mock provider servers, LLM eval harness, Playwright screenshots, Ruff, GitHub Actions | |
 | Deploy | Docker, docker-compose (app + Postgres) | |
 
 ## Quickstart (browser demo, about 5 minutes)
@@ -203,7 +203,7 @@ Clinic owners change everything on the **Setup** page: profile, hours, doctors, 
 ## Tests and evals
 
 ```bash
-pytest -q                       # 184 tests, offline, about 40 s
+pytest -q                       # 200 tests, offline, about 40 s
 python -m evals.run_evals       # multilingual LLM conversation evals (needs OPENAI_API_KEY)
 python -m evals.run_evals -k telugu --repeat 3
 python -m scripts.screenshots   # regenerate docs/screenshots (needs: pip install playwright && playwright install chromium)

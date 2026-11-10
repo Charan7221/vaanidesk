@@ -63,13 +63,25 @@ def _secret(settings) -> bytes:
     return hashlib.sha256(key.encode()).digest()
 
 
-def make_session_token(settings, user_id: str, days: int = SESSION_DAYS) -> str:
-    payload = base64.urlsafe_b64encode(json.dumps({"u": user_id, "exp": int(time.time()) + days * 86400}).encode())
+def password_stamp(secret_material: str) -> str:
+    """Short fingerprint of a password (hash) put in the login cookie: changing the password logs out every
+    device that was logged in with the old one."""
+    return hashlib.sha256(("stamp:" + secret_material).encode()).hexdigest()[:16]
+
+
+def make_session_token(settings, user_id: str, days: int = SESSION_DAYS, stamp: str = "") -> str:
+    payload = base64.urlsafe_b64encode(json.dumps({"u": user_id, "exp": int(time.time()) + days * 86400,
+                                                   "s": stamp}).encode())
     sig = hmac.new(_secret(settings), payload, hashlib.sha256).hexdigest()
     return payload.decode() + "." + sig
 
 
 def read_session_token(settings, token: str | None) -> str | None:
+    data = read_session(settings, token)
+    return data.get("u") if data else None
+
+
+def read_session(settings, token: str | None) -> dict | None:
     if not token or "." not in token:
         return None
     payload, sig = token.rsplit(".", 1)
@@ -80,7 +92,7 @@ def read_session_token(settings, token: str | None) -> str | None:
         data = json.loads(base64.urlsafe_b64decode(payload.encode()))
     except ValueError:
         return None
-    return data.get("u") if data.get("exp", 0) > time.time() else None
+    return data if data.get("exp", 0) > time.time() else None
 
 
 # ------------------------------------------------------------------ who is calling
@@ -136,12 +148,16 @@ async def authenticate(state, email: str, password: str) -> Principal | None:
 
 async def principal_from_request(request: Request) -> Principal | None:
     state = request.app.state.container
-    uid = read_session_token(state.settings, request.cookies.get(SESSION_COOKIE))
+    data = read_session(state.settings, request.cookies.get(SESSION_COOKIE))
+    uid, stamp = (data.get("u"), data.get("s", "")) if data else (None, "")
     if uid == SUPERADMIN_ID:
-        return _superadmin(state.settings)
+        ok = hmac.compare_digest(stamp, password_stamp(state.settings.admin_password))
+        return _superadmin(state.settings) if ok else None
     if uid:
         user = await _user_by(state.db, id=uid)
-        return _principal(user) if user else None
+        if not user or not hmac.compare_digest(stamp, password_stamp(user.password_hash)):
+            return None  # deactivated, or the password changed since this login
+        return _principal(user)
     scheme, param = get_authorization_scheme_param(request.headers.get("Authorization"))
     if scheme.lower() == "basic" and param:
         try:
@@ -197,3 +213,11 @@ async def audit(request: Request, action: str, target: str | None = None, **deta
     async with request.app.state.container.db.session() as s:
         s.add(AuditLog(actor=p.email if p else "system", action=action, target=target, detail=detail or None))
         await s.commit()
+
+
+async def session_stamp(state, principal: Principal) -> str:
+    """The stamp to put in a new login cookie for this person."""
+    if principal.id == SUPERADMIN_ID:
+        return password_stamp(state.settings.admin_password)
+    user = await _user_by(state.db, id=principal.id)
+    return password_stamp(user.password_hash) if user else ""

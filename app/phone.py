@@ -50,3 +50,10 @@ def validate_phone(raw: str | None, default_country_code: str = "+91") -> tuple[
     if not 8 <= len(digits) <= 15:
         return None, "phone numbers have 8 to 15 digits including the country code"
     return number, None
+
+
+def mask_phone(phone: str | None) -> str:
+    """For logs: keep only the last 4 digits (+91******8532)."""
+    if not phone:
+        return "-"
+    return phone[:3] + "*" * max(len(phone) - 7, 0) + phone[-4:] if len(phone) > 7 else "****"

@@ -39,6 +39,11 @@ class Message:
     title: str = ""  # email heading
     lines: list[tuple[str, str]] = field(default_factory=list)  # email details table
     footer: str = ""
+    log_as: str | None = None  # what the message log shows instead of the text (e.g. one-time codes)
+
+    @property
+    def log_text(self) -> str:
+        return self.log_as if self.log_as is not None else self.text
 
 
 class Channel:
@@ -198,23 +203,23 @@ class Notifier:
                     continue
                 tried = True
                 ok, err = await ch.send(phone, msg)
-                await self._log(kind, name, phone, "sent" if ok else "failed", msg.text, err)
+                await self._log(kind, name, phone, "sent" if ok else "failed", msg.log_text, err)
                 if ok:
                     out["sent"].append(name)
                     break
                 out["failed"].append(name)
             if not tried:
-                await self._log(kind, "none", phone, "not_configured", msg.text,
+                await self._log(kind, "none", phone, "not_configured", msg.log_text,
                                 "No WhatsApp/SMS provider is set up (see .env: TWILIO_* or META_WA_*)")
         email = valid_email(email) if email else None
         if email and use_email:
             ch = self.channels["email"]
             if ch.enabled():
                 ok, err = await ch.send(email, msg)
-                await self._log(kind, "email", email, "sent" if ok else "failed", msg.text, err)
+                await self._log(kind, "email", email, "sent" if ok else "failed", msg.log_text, err)
                 (out["sent"] if ok else out["failed"]).append("email")
             else:
-                await self._log(kind, "none", email, "not_configured", msg.text, "No email server is set up (SMTP_*)")
+                await self._log(kind, "none", email, "not_configured", msg.log_text, "No email server is set up (SMTP_*)")
         return out
 
     async def notify_patient(self, biz, *, kind: str, msg: Message, phone: str | None, email: str | None) -> dict:

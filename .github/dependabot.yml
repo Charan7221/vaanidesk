@@ -1,0 +1,12 @@
+# Weekly pull requests that update libraries with security fixes (and GitHub Actions versions).
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly

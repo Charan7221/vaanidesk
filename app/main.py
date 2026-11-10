@@ -71,9 +71,35 @@ async def _retention_loop(container) -> None:
         await asyncio.shield(_purge_transcripts(container))
 
 
+CSP = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+       "font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' ws: wss:; "
+       "media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; "
+       "frame-ancestors 'none'")
+
+
+async def security_headers(request: Request, call_next):
+    """Browser protections on every page: no framing (clickjacking), no MIME sniffing, a strict content
+    policy (only our own scripts run), microphone only for our own pages, and HTTPS-only once on HTTPS."""
+    response = await call_next(request)
+    h = response.headers
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    h.setdefault("Permissions-Policy", "microphone=(self), camera=(), geolocation=()")
+    if not request.url.path.startswith(("/docs", "/redoc")):  # Swagger UI (dev only) loads from a CDN
+        h.setdefault("Content-Security-Policy", CSP)
+    if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https":
+        h.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    if request.url.path.startswith("/api/"):
+        h.setdefault("Cache-Control", "no-store")  # patient data never sits in browser or proxy caches
+    return response
+
+
 def create_app(settings: Settings | None = None, state: AppState | None = None) -> FastAPI:
     settings = settings or get_settings()
     logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    if settings.is_production and (problems := settings.production_problems()):
+        raise RuntimeError("Refusing to start a public server with unsafe settings:\n  - " + "\n  - ".join(problems))
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -104,8 +130,10 @@ def create_app(settings: Settings | None = None, state: AppState | None = None) 
         await drain()  # let SMS / summaries finish before the database closes
         await container.db.dispose()
 
-    app = FastAPI(title="VaaniDesk", version="1.0.0", lifespan=lifespan,
+    docs = {} if not settings.is_production else {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    app = FastAPI(title="VaaniDesk", version="1.0.0", lifespan=lifespan, **docs,
                   description="Real-time multilingual voice AI receptionist (English, Hindi, Telugu)")
+    app.middleware("http")(security_headers)
     app.include_router(twilio_router)
     app.include_router(browser_router)
     app.include_router(exotel_router)

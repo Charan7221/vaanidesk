@@ -11,6 +11,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
+WEAK_PASSWORDS = frozenset({"change-me", "changeme", "admin", "password", "password123", "1234567890", "qwertyuiop",
+                            "secret"})
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -101,6 +105,11 @@ class Settings(BaseSettings):
     end_of_turn_delay_ms: int = 350  # wait after final transcript before replying
     incomplete_turn_delay_ms: int = 1200  # ...longer if the caller stopped mid-sentence
     max_call_seconds: int = 600
+    # --- Abuse limits for the public web chat (each conversation costs AI credits) ---
+    chat_sessions_per_hour: int = 20  # new conversations per visitor address
+    chat_concurrent_per_ip: int = 2
+    chat_max_messages: int = 60  # typed messages per conversation
+    chat_max_chars: int = 500  # per typed message
 
     @field_validator("database_url")
     @classmethod
@@ -120,6 +129,23 @@ class Settings(BaseSettings):
                 setattr(self, name, "")
         return self
 
+    @property
+    def is_production(self) -> bool:
+        """APP_ENV=production, or running on Render (which sets RENDER=true)."""
+        return self.app_env.lower() in ("production", "prod") or bool(os.environ.get("RENDER"))
+
+    def production_problems(self) -> list[str]:
+        """Settings that make a public server unsafe. In production the server refuses to start with any of them."""
+        out = []
+        if len(self.secret_key) < 32:
+            out.append("SECRET_KEY must be a long random value (32+ characters): it signs every login. Generate one "
+                       "with: python -c \"import secrets; print(secrets.token_urlsafe(48))\"")
+        if self.admin_password.lower() in WEAK_PASSWORDS or len(self.admin_password) < 12:
+            out.append("ADMIN_PASSWORD is the default or too short (use 12+ characters): it opens every clinic.")
+        if self.twilio_enabled and not self.twilio_validate_signature:
+            out.append("TWILIO_VALIDATE_SIGNATURE must be true: otherwise anyone can fake Twilio calls.")
+        return out
+
     def config_warnings(self) -> list[str]:
         """Settings that are present but very likely wrong (shown at startup, in /health and check_setup)."""
         out = []
@@ -130,6 +156,11 @@ class Settings(BaseSettings):
                        "https://generativelanguage.googleapis.com/v1beta/openai/ and a gemini OPENAI_MODEL.")
         if base and "generativelanguage" in base and not self.openai_model.startswith("gemini"):
             out.append(f"OPENAI_BASE_URL points to Gemini but OPENAI_MODEL is {self.openai_model!r}; use a gemini model.")
+        if self.is_production and base and "generativelanguage" in base:
+            out.append("Patient data goes to Gemini: use a key from a billing-enabled (paid) Google Cloud project. "
+                       "On the free tier Google may use what you send to improve its products.")
+        if self.is_production and not self.exotel_stream_secret:
+            out.append("EXOTEL_STREAM_SECRET is empty, so the Exotel stream is closed (set it to take Exotel calls).")
         if self.twilio_account_sid and not self.twilio_account_sid.startswith("AC"):
             out.append("TWILIO_ACCOUNT_SID should start with 'AC' (Twilio Console > Account info).")
         return out

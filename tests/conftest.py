@@ -82,3 +82,30 @@ def _fresh_rate_limits():
     limiter.hits.clear()
     yield
     limiter.hits.clear()
+
+
+class CodeChannel:
+    """A WhatsApp/SMS channel for tests that keeps what it sent (to read one-time codes back)."""
+
+    def __init__(self):
+        self.sent: list[tuple[str, str]] = []
+
+    def enabled(self):
+        return True
+
+    async def send(self, to, msg):
+        self.sent.append((to, msg.text))
+        return True, None
+
+    def last_code(self) -> str:
+        import re
+
+        return re.search(r"\b(\d{6})\b", self.sent[-1][1]).group(1)
+
+
+@pytest.fixture
+def sms(executor) -> CodeChannel:
+    """Make the executor able to send one-time codes; returns the channel to read them from."""
+    ch = CodeChannel()
+    executor.notifier.channels = {"whatsapp": ch, "sms": ch, "email": ch}
+    return ch

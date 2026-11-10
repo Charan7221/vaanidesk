@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hmac
 import re
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -26,47 +25,21 @@ from ..auth import (
     require_owner,
     require_superadmin,
     require_user,
+    session_stamp,
 )
 from ..business import Business
 from ..config import ROOT_DIR
 from ..db import DEFAULT_CLINIC, Appointment, AuditLog, Call, Clinic, OpdToken, User, as_utc, current_clinic
 from ..phone import normalize_phone
+from ..security import RateLimiter, client_ip, limiter  # noqa: F401  (RateLimiter re-exported)
 
 router = APIRouter(prefix="/api", tags=["accounts"])
 
 
-class RateLimiter:
-    """In-memory sliding-window counter (per server process): slows down password guessing and sign-up spam."""
-
-    def __init__(self):
-        self.hits: dict[str, list[float]] = {}
-
-    def _recent(self, key: str, window_s: int) -> list[float]:
-        now = time.monotonic()
-        self.hits[key] = [t for t in self.hits.get(key, []) if now - t < window_s]
-        return self.hits[key]
-
-    def allow(self, key: str, limit: int, window_s: int, count: bool = True) -> bool:
-        recent = self._recent(key, window_s)
-        if len(recent) >= limit:
-            return False
-        if count:
-            recent.append(time.monotonic())
-        return True
-
-    def hit(self, key: str) -> None:
-        self.hits.setdefault(key, []).append(time.monotonic())
-
-    def reset(self, key: str) -> None:
-        self.hits.pop(key, None)
-
-
-limiter = RateLimiter()
 
 
 def _ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for", "")
-    return fwd.split(",")[0].strip() or (request.client.host if request.client else "?")
+    return client_ip(request.headers, request.client)
 TEMPLATES = {"clinic": ROOT_DIR / "config" / "business.yaml", "hospital": ROOT_DIR / "config" / "hospital.yaml"}
 
 
@@ -92,7 +65,8 @@ async def login(body: LoginIn, request: Request, response: Response) -> dict:
         limiter.hit(key)
         raise HTTPException(401, "Wrong email or password")
     limiter.reset(key)
-    _cookie(response, request, SESSION_COOKIE, make_session_token(state.settings, p.id), SESSION_DAYS * 86400)
+    token = make_session_token(state.settings, p.id, stamp=await session_stamp(state, p))
+    _cookie(response, request, SESSION_COOKIE, token, SESSION_DAYS * 86400)
     request.state.principal = p
     if p.clinic_id:
         current_clinic.set(p.clinic_id)
@@ -400,7 +374,7 @@ async def signup(body: SignupIn, request: Request, response: Response) -> dict:
     await new_clinic(state, clinic_id, body.clinic_name.strip(), body.template, body.email, body.password,
                      owner_name=body.your_name.strip() or "Owner", pilot_mode=True, phone=phone)
     p = await authenticate(state, body.email.strip(), body.password)
-    _cookie(response, request, SESSION_COOKIE, make_session_token(s, p.id), SESSION_DAYS * 86400)
+    _cookie(response, request, SESSION_COOKIE, make_session_token(s, p.id, stamp=await session_stamp(state, p)), SESSION_DAYS * 86400)
     request.state.principal = p
     current_clinic.set(clinic_id)
     await audit(request, "clinic.signup", clinic_id, template=body.template)
