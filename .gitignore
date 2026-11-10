@@ -22,4 +22,4 @@ evals/retrieval_results.json
 *.key
 backups/
 
-.coverage
+.coverage*

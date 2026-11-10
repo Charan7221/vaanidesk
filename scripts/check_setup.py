@@ -145,6 +145,8 @@ async def main() -> None:
     s = get_settings()
     print(f"Config: LLM={s.openai_model} @ {s.openai_base_url or 'OpenAI'} | STT={s.stt_provider} | "
           f"TTS={s.sarvam_tts_model}/{s.sarvam_tts_speaker} mode={s.tts_mode}\n")
+    for w in s.config_warnings():
+        print(f"  WARNING  {w}")
     if "--google" in sys.argv:  # only test the calendar
         await check_google_calendar(s)
         return

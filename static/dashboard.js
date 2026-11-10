@@ -22,7 +22,7 @@
       kpi("Appointments booked", s.booked),
       kpi("OPD tokens by phone", s.opd_tokens ?? 0),
       kpi("Booking rate", `${Math.round(s.conversion_rate * 100)}%`),
-      kpi("Avg response latency", s.avg_latency_ms ? `${s.avg_latency_ms} ms` : "–"),
+      kpi("Avg response latency", s.avg_latency_ms ? `${(s.avg_latency_ms / 1000).toFixed(1)} s` : "–"),
       kpi("Transferred to staff", s.transferred),
       kpi("Upcoming appointments (all)", s.upcoming_appointments),
     ].join("") + `<div class="panel kpi"><div class="label">Languages</div><div class="small" style="margin-top:8px">${esc(langs)}</div></div>`;
