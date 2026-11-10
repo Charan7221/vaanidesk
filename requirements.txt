@@ -10,7 +10,7 @@ pydantic-settings>=2.4
 pyyaml>=6.0
 numpy>=1.26
 tzdata>=2024.1  # time zones on Windows
-python-multipart>=0.0.9
+python-multipart>=0.0.33
 pypdf>=4.0          # reading PDF documents for the knowledge base
 # Optional: Google Calendar sync
 google-auth>=2.30
